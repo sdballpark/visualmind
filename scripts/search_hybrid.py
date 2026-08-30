@@ -7,12 +7,56 @@ import argparse
 import sys
 from pathlib import Path
 
-from visualmind import retrieval
+from visualmind import people, retrieval
+
+
+def list_people():
+    roster = people.roster()
+
+    if not roster:
+        print("No labelled people. Run cluster_faces.py, then "
+              "label_faces.py.")
+        return 1
+
+    print()
+    print("=" * 76)
+    print("KNOWN PEOPLE - " + str(len(roster)))
+    print("=" * 76)
+    print()
+    print("NAME".ljust(30) + "IMAGES".rjust(8) + "FACES".rjust(8))
+    print("-" * 76)
+
+    for entry in roster:
+        print(entry["name"].ljust(30)
+              + str(entry["images"]).rjust(8)
+              + str(entry["faces"]).rjust(8))
+
+    print()
+    print("Filter a search with: --person \"Lisa Bogan\"")
+    print("Partial names work when unambiguous: --person lisa")
+    print()
+
+    return 0
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("query")
+    parser.add_argument("query", nargs="?", default="")
+    parser.add_argument(
+        "--person",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help=(
+            "Only images containing this person. Repeat for several - "
+            "every named person must be present."
+        ),
+    )
+    parser.add_argument(
+        "--list-people",
+        action="store_true",
+        help="Show known people and exit.",
+    )
     parser.add_argument(
         "--top-k",
         type=int,
@@ -43,7 +87,6 @@ def main():
         "--semantic-drop",
         type=float,
         default=retrieval.SEMANTIC_DROP,
-        help="Trim threshold as a fraction of the set's score range.",
     )
     parser.add_argument(
         "--mode",
@@ -57,21 +100,66 @@ def main():
     )
     args = parser.parse_args()
 
+    if args.list_people:
+        return list_people()
+
+    if not args.query and not args.person:
+        parser.error("give a query, --person, or --list-people")
+
     print()
     print("=" * 76)
-    print("HYBRID SEARCH - " + args.query)
+    print("HYBRID SEARCH - " + (args.query or "(no text query)"))
     print("=" * 76)
 
-    outcome = retrieval.search(
-        args.query,
-        mode=args.mode,
-        top_k=args.top_k,
-        rrf_k=args.rrf_k,
-        gradient_floor=args.gradient_floor,
-        min_partial_terms=args.min_partial_terms,
-        semantic_drop=args.semantic_drop,
-        trim=args.trim,
-    )
+    try:
+        outcome = retrieval.search(
+            args.query,
+            mode=args.mode,
+            top_k=args.top_k,
+            rrf_k=args.rrf_k,
+            gradient_floor=args.gradient_floor,
+            min_partial_terms=args.min_partial_terms,
+            semantic_drop=args.semantic_drop,
+            trim=args.trim,
+            persons=args.person,
+        )
+    except people.AmbiguousName as error:
+        print()
+        print(str(error))
+        print()
+        print("Use a fuller name.")
+        print()
+        return 1
+    except people.UnknownName as error:
+        print()
+        print(str(error))
+        print()
+        print("See --list-people.")
+        print()
+        return 1
+
+    if outcome["people"]:
+        print()
+        print("-" * 76)
+        print("PERSON FILTER")
+        print("-" * 76)
+
+        for name in outcome["people"]:
+            print("  " + name.ljust(30)
+                  + str(outcome["person_counts"][name]).rjust(4) + " images")
+
+        if len(outcome["people"]) > 1:
+            print()
+            print("  Together in " + str(outcome["pool_size"]) + " images")
+
+        print()
+        print("  Searching " + str(outcome["pool_size"]) + " of "
+              + str(outcome["corpus_size"]) + " images")
+        print()
+        print("  Note: someone whose face was not detected in a photo "
+              "will not")
+        print("  match, so this filter under-reports rather than over-"
+              "reports.")
 
     img_note = "" if outcome["img_plateau"] else "  (ceiling, no plateau)"
     cap_note = "" if outcome["cap_plateau"] else "  (ceiling, no plateau)"
@@ -121,8 +209,7 @@ def main():
         print()
 
     if outcome["trimmed"]:
-        print("Trimmed " + str(len(outcome["trimmed"]))
-              + " result(s) below the caption-score threshold:")
+        print("Trimmed " + str(len(outcome["trimmed"])) + " result(s):")
 
         for path in outcome["trimmed"]:
             print("  - " + by_path.get(path, {}).get(

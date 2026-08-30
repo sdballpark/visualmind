@@ -3,8 +3,9 @@
 Retrieval logic lives in visualmind.retrieval so this and
 scripts/search_hybrid.py cannot drift apart. This module only renders.
 
-Output pages embed base64 copies of the source photos. outputs/ is
-gitignored for that reason.
+Output pages embed base64 copies of the source photos and, when a person
+filter is used, the names of real people. outputs/ is gitignored and
+blocked by the pre-commit hook.
 """
 import argparse
 import base64
@@ -16,7 +17,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from visualmind import retrieval
+from visualmind import people, retrieval
 
 OUTPUT_ROOT = Path("outputs/search")
 THUMBNAIL = (420, 420)
@@ -26,9 +27,14 @@ body { font-family: system-ui, sans-serif; margin: 30px; background: #f4f4f4;
        color: #222; }
 h1 { margin-bottom: 4px; }
 .meta { margin-bottom: 8px; color: #444; font-size: 14px; }
+.people { background: #eef4ff; border-left: 4px solid #2b5fa8;
+          padding: 12px 16px; margin: 10px 0 18px; font-size: 13px;
+          line-height: 1.6; }
+.people strong { display: block; margin-bottom: 4px; }
+.people .caveat { color: #555; margin-top: 8px; }
 .basis { display: inline-block; padding: 5px 11px; border-radius: 4px;
          background: #1f6f3f; color: #fff; font-size: 13px;
-         margin: 10px 0 24px; }
+         margin: 4px 0 24px; }
 .basis.gradient { background: #8a6d1f; }
 .basis.warn { background: #8a1f1f; }
 .note { background: #fff3f3; border-left: 4px solid #8a1f1f;
@@ -76,12 +82,40 @@ def thumbnail_data_uri(path):
     return "data:image/jpeg;base64," + encoded
 
 
+def people_block(outcome):
+    if not outcome["people"]:
+        return ""
+
+    rows = "".join(
+        "<div>" + html.escape(name) + " - "
+        + str(outcome["person_counts"][name]) + " images</div>"
+        for name in outcome["people"]
+    )
+
+    together = ""
+
+    if len(outcome["people"]) > 1:
+        together = ("<div>Together in " + str(outcome["pool_size"])
+                    + " images</div>")
+
+    return (
+        '<div class="people"><strong>Person filter - searching '
+        + str(outcome["pool_size"]) + " of "
+        + str(outcome["corpus_size"]) + " images</strong>"
+        + rows + together
+        + '<div class="caveat">A face that was not detected will not '
+        + "match, so this filter under-reports rather than over-reports."
+        + "</div></div>"
+    )
+
+
 def render(query, outcome, mode, rrf_k):
     by_path = {r["source_path"]: r for r in outcome["caption_lookup"]}
     img_rank = outcome["image_rank"]
     cap_rank = outcome["caption_rank"]
     hits = outcome["hits"]
     matched = outcome["matched"]
+    scored = bool(outcome["total_terms"])
 
     cards = []
 
@@ -97,6 +131,14 @@ def render(query, outcome, mode, rrf_k):
             badge = ('<div class="terms">' + str(hits.get(path, 0))
                      + " / " + str(outcome["total_terms"]) + " terms</div>")
 
+        if scored:
+            ranks = ('<div class="ranks">score ' + format(score, ".5f")
+                     + " &nbsp;|&nbsp; image #" + str(img_rank.get(path, "-"))
+                     + " &nbsp;|&nbsp; caption #"
+                     + str(cap_rank.get(path, "-")) + "</div>")
+        else:
+            ranks = '<div class="ranks">catalog order</div>'
+
         cards.append(
             '<article class="card">'
             + '<div class="rank">#' + str(rank) + "</div>"
@@ -104,10 +146,7 @@ def render(query, outcome, mode, rrf_k):
             + '<img src="' + thumb + '" alt="' + html.escape(name) + '">'
             + '<div class="content">'
             + '<div class="name">' + html.escape(name) + "</div>"
-            + '<div class="ranks">score ' + format(score, ".5f")
-            + " &nbsp;|&nbsp; image #" + str(img_rank.get(path, "-"))
-            + " &nbsp;|&nbsp; caption #" + str(cap_rank.get(path, "-"))
-            + "</div>"
+            + ranks
             + '<div class="caption">' + html.escape(caption) + "</div>"
             + "</div></article>"
         )
@@ -148,20 +187,29 @@ def render(query, outcome, mode, rrf_k):
             + "</ul></div>"
         )
 
-    img_note = "" if outcome["img_plateau"] else " (ceiling)"
-    cap_note = "" if outcome["cap_plateau"] else " (ceiling)"
+    if scored:
+        img_note = "" if outcome["img_plateau"] else " (ceiling)"
+        cap_note = "" if outcome["cap_plateau"] else " (ceiling)"
+        meta = ('<div class="meta">mode ' + mode
+                + " &nbsp;|&nbsp; RRF k=" + str(rrf_k)
+                + " &nbsp;|&nbsp; content terms "
+                + str(outcome["total_terms"])
+                + " &nbsp;|&nbsp; image cut " + str(outcome["img_cut"])
+                + img_note
+                + " &nbsp;|&nbsp; caption cut " + str(outcome["cap_cut"])
+                + cap_note + "</div>")
+    else:
+        meta = '<div class="meta">no text query - person filter only</div>'
+
+    heading = query or "People"
 
     return (
         '<!DOCTYPE html><html><head><meta charset="utf-8">'
-        + "<title>VisualMind - " + html.escape(query) + "</title>"
+        + "<title>VisualMind - " + html.escape(heading) + "</title>"
         + "<style>" + PAGE_CSS + "</style></head><body>"
-        + "<h1>" + html.escape(query) + "</h1>"
-        + '<div class="meta">mode ' + mode
-        + " &nbsp;|&nbsp; RRF k=" + str(rrf_k)
-        + " &nbsp;|&nbsp; content terms " + str(outcome["total_terms"])
-        + " &nbsp;|&nbsp; image cut " + str(outcome["img_cut"]) + img_note
-        + " &nbsp;|&nbsp; caption cut " + str(outcome["cap_cut"]) + cap_note
-        + "</div>"
+        + "<h1>" + html.escape(heading) + "</h1>"
+        + meta
+        + people_block(outcome)
         + '<div class="' + basis_class + '">returning '
         + str(len(outcome["results"])) + " - "
         + html.escape(outcome["basis"]) + "</div>"
@@ -174,7 +222,17 @@ def render(query, outcome, mode, rrf_k):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("query")
+    parser.add_argument("query", nargs="?", default="")
+    parser.add_argument(
+        "--person",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help=(
+            "Only images containing this person. Repeat for several - "
+            "every named person must be present."
+        ),
+    )
     parser.add_argument(
         "--top-k",
         type=int,
@@ -192,20 +250,11 @@ def main():
         type=int,
         default=retrieval.MIN_PARTIAL_TERMS,
     )
-    parser.add_argument(
-        "--trim",
-        action="store_true",
-        help=(
-            "Discard term-matched results whose caption score trails the "
-            "set. Off by default: it cost a true match on the one "
-            "relational query tested."
-        ),
-    )
+    parser.add_argument("--trim", action="store_true")
     parser.add_argument(
         "--semantic-drop",
         type=float,
         default=retrieval.SEMANTIC_DROP,
-        help="Trim threshold as a fraction of the set's score range.",
     )
     parser.add_argument(
         "--mode",
@@ -214,36 +263,51 @@ def main():
     )
     args = parser.parse_args()
 
-    outcome = retrieval.search(
-        args.query,
-        mode=args.mode,
-        top_k=args.top_k,
-        rrf_k=args.rrf_k,
-        gradient_floor=args.gradient_floor,
-        min_partial_terms=args.min_partial_terms,
-        semantic_drop=args.semantic_drop,
-        trim=args.trim,
-    )
+    if not args.query and not args.person:
+        parser.error("give a query, --person, or both")
+
+    try:
+        outcome = retrieval.search(
+            args.query,
+            mode=args.mode,
+            top_k=args.top_k,
+            rrf_k=args.rrf_k,
+            gradient_floor=args.gradient_floor,
+            min_partial_terms=args.min_partial_terms,
+            semantic_drop=args.semantic_drop,
+            trim=args.trim,
+            persons=args.person,
+        )
+    except (people.AmbiguousName, people.UnknownName) as error:
+        print()
+        print(str(error))
+        print()
+        return 1
 
     page = render(args.query, outcome, args.mode, args.rrf_k)
 
+    stem = safe_name(args.query) if args.query else "people"
+
+    if args.person:
+        stem += "--" + "-".join(safe_name(p) for p in args.person)
+
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
-    output_path = OUTPUT_ROOT / (safe_name(args.query) + ".html")
+    output_path = OUTPUT_ROOT / (stem + ".html")
     output_path.write_text(page, encoding="utf-8")
 
     print()
     print("=" * 72)
     print("VISUALMIND SEARCH GALLERY")
     print("=" * 72)
-    print("Query:    " + args.query)
-    print("Mode:     " + args.mode)
+    print("Query:    " + (args.query or "(none)"))
+
+    if outcome["people"]:
+        print("People:   " + ", ".join(outcome["people"]))
+        print("Pool:     " + str(outcome["pool_size"]) + " of "
+              + str(outcome["corpus_size"]) + " images")
+
     print("Returned: " + str(len(outcome["results"]))
           + "  (" + outcome["basis"] + ")")
-
-    if outcome["trimmed"]:
-        print("Trimmed:  " + str(len(outcome["trimmed"]))
-              + "  (listed in the gallery)")
-
     print("Gallery:  " + str(output_path.resolve()))
     print("=" * 72)
     print()

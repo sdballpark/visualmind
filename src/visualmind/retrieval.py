@@ -8,11 +8,19 @@ score decides their order. Term matching has no notion of subject and
 object - "holding" and "baby" both appear in a caption describing a baby
 holding a ladle - so it bounds the candidate set rather than ranking it.
 
+People are a hard pre-filter applied before any scoring. A request for
+photos of a named person means only photos containing that person, so
+they constrain the candidate pool rather than nudging a ranking. Names
+come from an explicit argument, never parsed out of the query text: no
+model has seen the label file, and guessing which words are names fails
+in ways that are hard to explain.
+
+A person filter with no text query returns the whole filtered pool.
+There is nothing to rank by, so results come back in catalog order
+rather than in an order manufactured from an empty embedding.
+
 Trimming the tail of a matched set by caption score is available behind
-the `trim` flag but is off by default. Measured on a relational query it
-raised precision from 83% to 87.5% while discarding a correct match, and
-the errors it was meant to catch scored mid-pack rather than last. See
-evals/retrieval-evaluation.md.
+the `trim` flag but is off by default. See evals/retrieval-evaluation.md.
 """
 import csv
 import re
@@ -23,6 +31,8 @@ import torch
 import torch.nn.functional as F
 import yaml
 from transformers import AutoModel, AutoProcessor, AutoTokenizer
+
+from visualmind import people
 
 MODEL_CONFIG = Path("configs/models.yaml")
 INDEX_DIR = Path("indexes")
@@ -120,7 +130,7 @@ def content_terms(query):
     ]
 
 
-def term_hits(query, lookup):
+def term_hits(query, lookup, allowed=None):
     """Map each path to how many query content terms its caption contains."""
     terms = content_terms(query)
 
@@ -130,6 +140,9 @@ def term_hits(query, lookup):
     hits = {}
 
     for row in lookup:
+        if allowed is not None and row["source_path"] not in allowed:
+            continue
+
         caption = row["caption"].lower()
 
         count = sum(
@@ -144,11 +157,7 @@ def term_hits(query, lookup):
 
 
 def gradient_cutoff(scores, floor=GRADIENT_FLOOR, ceiling=GRADIENT_CEILING):
-    """Return (cutoff, plateau_found).
-
-    plateau_found is False when the curve never flattened, meaning the
-    cutoff is the ceiling rather than a decision.
-    """
+    """Return (cutoff, plateau_found)."""
     ordered = np.sort(scores)[::-1][:ceiling]
 
     if len(ordered) < 3:
@@ -175,12 +184,7 @@ def rrf(paths, k):
 
 
 def semantic_order(paths, cap_by_path, drop_ratio, trim):
-    """Order a candidate set by caption similarity.
-
-    Returns (kept, trimmed). When `trim` is False nothing is discarded,
-    which is the default: a silently omitted true match is worse than a
-    visible false positive in a personal archive.
-    """
+    """Order a candidate set by caption similarity."""
     ranked = sorted(paths, key=lambda p: cap_by_path[p], reverse=True)
 
     if not trim or len(ranked) < 4:
@@ -201,29 +205,92 @@ def semantic_order(paths, cap_by_path, drop_ratio, trim):
     return kept, dropped
 
 
+def empty_result(cap_lookup, corpus_size, resolved_people, person_counts,
+                 allowed, basis):
+    order = [
+        row["source_path"] for row in cap_lookup
+        if allowed is None or row["source_path"] in allowed
+    ]
+
+    return {
+        "results": [(path, 0.0) for path in order],
+        "basis": basis,
+        "matched": set(),
+        "hits": {},
+        "trimmed": [],
+        "total_terms": 0,
+        "full_count": 0,
+        "partial_count": 0,
+        "img_cut": 0,
+        "img_plateau": True,
+        "cap_cut": 0,
+        "cap_plateau": True,
+        "low_confidence": False,
+        "caption_lookup": cap_lookup,
+        "caption_score": {},
+        "people": resolved_people,
+        "person_counts": person_counts,
+        "corpus_size": corpus_size,
+        "pool_size": len(order),
+        "image_rank": {},
+        "caption_rank": {},
+    }
+
+
 def search(query, mode="hybrid", top_k=0, rrf_k=RRF_K,
            gradient_floor=GRADIENT_FLOOR,
            min_partial_terms=MIN_PARTIAL_TERMS,
            semantic_drop=SEMANTIC_DROP,
-           trim=False):
+           trim=False,
+           persons=None):
     """Run hybrid retrieval and derive a result count."""
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA unavailable.")
 
+    allowed, resolved_people, person_counts = people.filter_paths(
+        persons or []
+    )
+
+    # No text to rank by. With a person filter this is a legitimate
+    # request - "every photo of these people" - and the whole pool is the
+    # answer. Without one there is nothing to return.
+    if not content_terms(query):
+        cap_lookup = read_lookup(CAPTION_LOOKUP)
+
+        if allowed is None:
+            basis = "no query and no person filter"
+        else:
+            basis = ("person filter only - every image containing "
+                     + " and ".join(resolved_people))
+
+        return empty_result(
+            cap_lookup, len(cap_lookup), resolved_people, person_counts,
+            allowed, basis,
+        )
+
     img_s, img_lookup = image_scores(query)
     cap_s, cap_lookup = caption_scores(query)
-
-    img_paths = [
-        img_lookup[i]["source_path"] for i in np.argsort(img_s)[::-1]
-    ]
-    cap_paths = [
-        cap_lookup[i]["source_path"] for i in np.argsort(cap_s)[::-1]
-    ]
 
     cap_by_path = {
         row["source_path"]: float(cap_s[i])
         for i, row in enumerate(cap_lookup)
     }
+
+    corpus_size = len(cap_lookup)
+
+    def permitted(path):
+        return allowed is None or path in allowed
+
+    img_paths = [
+        img_lookup[i]["source_path"] for i in np.argsort(img_s)[::-1]
+        if permitted(img_lookup[i]["source_path"])
+    ]
+    cap_paths = [
+        cap_lookup[i]["source_path"] for i in np.argsort(cap_s)[::-1]
+        if permitted(cap_lookup[i]["source_path"])
+    ]
+
+    pool = len(cap_paths)
 
     img_rrf = rrf(img_paths, rrf_k)
     cap_rrf = rrf(cap_paths, rrf_k)
@@ -240,19 +307,31 @@ def search(query, mode="hybrid", top_k=0, rrf_k=RRF_K,
 
     ordered = sorted(fused.items(), key=lambda kv: kv[1], reverse=True)
 
-    hits, total_terms = term_hits(query, cap_lookup)
+    hits, total_terms = term_hits(query, cap_lookup, allowed)
     full = {p for p, n in hits.items() if n == total_terms}
 
     threshold = min(min_partial_terms, total_terms) if total_terms else 0
     partial = {p for p, n in hits.items() if threshold and n >= threshold}
 
-    img_cut, img_found = gradient_cutoff(img_s, gradient_floor)
-    cap_cut, cap_found = gradient_cutoff(cap_s, gradient_floor)
+    subset = np.array(
+        [cap_by_path[p] for p in cap_paths]
+    ) if cap_paths else np.array([0.0])
+
+    img_cut, img_found = gradient_cutoff(
+        img_s if allowed is None else subset, gradient_floor
+    )
+    cap_cut, cap_found = gradient_cutoff(
+        cap_s if allowed is None else subset, gradient_floor
+    )
 
     low_confidence = False
     trimmed = []
 
-    if top_k:
+    if not ordered:
+        results = []
+        basis = "no images match the person filter"
+        matched = set()
+    elif top_k:
         results = ordered[:top_k]
         basis = "fixed count (--top-k " + str(top_k) + ")"
         matched = set()
@@ -263,7 +342,7 @@ def search(query, mode="hybrid", top_k=0, rrf_k=RRF_K,
         results = [(p, cap_by_path[p]) for p in kept]
         matched = full
         basis = ("full caption match - " + str(len(full)) + " of "
-                 + str(len(cap_lookup)) + " captions contain all "
+                 + str(pool) + " captions contain all "
                  + str(total_terms)
                  + (" term" if total_terms == 1 else " terms"))
     elif partial:
@@ -299,6 +378,10 @@ def search(query, mode="hybrid", top_k=0, rrf_k=RRF_K,
         "low_confidence": low_confidence,
         "caption_lookup": cap_lookup,
         "caption_score": cap_by_path,
+        "people": resolved_people,
+        "person_counts": person_counts,
+        "corpus_size": corpus_size,
+        "pool_size": pool,
         "image_rank": {p: i for i, p in enumerate(img_paths, start=1)},
         "caption_rank": {p: i for i, p in enumerate(cap_paths, start=1)},
     }
