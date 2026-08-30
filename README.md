@@ -1,8 +1,8 @@
 # VisualMind
 
-Local-first semantic search and duplicate detection over a personal photo
-collection. Runs entirely on one machine: no cloud APIs, no photos leaving
-the filesystem.
+Local-first semantic search, duplicate detection, and face clustering over
+a personal photo collection. Runs entirely on one machine: no cloud APIs,
+no photos leaving the filesystem.
 
 Built against a 441-image family photo corpus spanning 2002-2026 - mostly
 consumer digicam JPEGs and scans, which turns out to matter (see the
@@ -18,17 +18,30 @@ Ask for photos in plain language and get back only the ones that exist:
     uv run python scripts/search_gallery.py "cat"
     -> 2 results, both depictions - the corpus has no live cats
 
+Filter by who is in the photo:
+
+    uv run python scripts/search_gallery.py "dog" --person lisa
+    -> 3 results, from the 73 images containing Lisa
+
+    uv run python scripts/search_gallery.py "" --person casey --person manvi
+    -> 16 results, every photo containing both
+
 Find redundant copies without touching anything:
 
     uv run python scripts/find_duplicates.py
     -> 6 near-duplicate groups, 15 same-scene groups, nothing deleted
 
+Check whether anything is stale:
+
+    uv run python scripts/status.py
+    -> per-artifact coverage against the catalog, exit 1 if a rebuild is due
+
 Search output is a self-contained HTML gallery with thumbnails, captions,
-and the rank each result held in both underlying indexes.
+and the rank each result held in every underlying index.
 
 ## How it works
 
-Four models, each doing what it is best at:
+Five models, each doing what it is best at:
 
 | Role             | Model                            | Job                        |
 |------------------|----------------------------------|----------------------------|
@@ -36,11 +49,12 @@ Four models, each doing what it is best at:
 | Captioning       | Qwen/Qwen3-VL-4B-Instruct        | describe every photo       |
 | Text embedding   | BAAI/bge-large-en-v1.5           | search over captions       |
 | Visual embedding | facebook/dinov2-base             | image-to-image similarity  |
+| Face analysis    | InsightFace buffalo_l            | detection and recognition  |
 
 Text search fuses the image and caption rankings with Reciprocal Rank
 Fusion, since their score scales are not comparable. Duplicate detection
-uses DINOv2 alone - it has no text tower and answers only "are these the
-same photograph".
+uses DINOv2 alone. Face work is separate again - detection, then
+clustering, then names.
 
 ### The result count is derived, not fixed
 
@@ -56,6 +70,19 @@ VisualMind decides how many results to return from three signals:
 
 When none is confident, it says so rather than returning a number that
 looks like an answer.
+
+### People are a filter, not a ranking signal
+
+Faces are detected, clustered into anonymous identities with DBSCAN, and
+named once by hand. Names then constrain which images are searched at all.
+
+Names are passed explicitly with `--person`, never parsed out of the query
+text. No model has seen the label file, so a name inside a sentence would
+have to be guessed at - and guessing which words are names fails in ways
+that are hard to explain. `--list-people` shows who is known.
+
+Labels anchor to face IDs rather than cluster IDs, so re-clustering with
+different parameters does not scramble who is who.
 
 ### Duplicate detection runs in three tiers
 
@@ -79,8 +106,13 @@ Search, over nine queries with manual relevance labelling:
 Against a fixed top-12 baseline, "dog" returned 10 correct of 12 and missed
 10 dogs that exist in the corpus. The derived count returns all 20.
 
-Duplicates, over the full corpus: 0 exact, 6 near-duplicates, 15 same-scene
-groups of which roughly 13 are useful.
+Faces: 1,325 detected across 365 of 441 images, clustered into 52 groups at
+DBSCAN eps 0.45, labelled as 44 distinct people covering 81% of faces.
+Three clusters merged into one person where the same individual appeared at
+different ages.
+
+Duplicates: 0 exact, 6 near-duplicates, 15 same-scene groups of which
+roughly 13 are useful.
 
 Full methodology is in
 [evals/retrieval-evaluation.md](evals/retrieval-evaluation.md) and
@@ -106,10 +138,15 @@ Requires CUDA. Developed on an RTX 4090 Laptop (16 GB); peak usage is
     uv sync
     uv run python scripts/check_models.py
 
-`check_models.py` reports which models are cached and resolves each pinned
-revision against the Hub. Weights live in the shared Hugging Face cache
-(`$HF_HOME`), never in this repository - see `configs/models.yaml` for the
-registry, including licence per model.
+`check_models.py` reports which models are cached, resolves each pinned
+revision against the Hub, and shows the licence per model. Weights live in
+the shared Hugging Face cache (`$HF_HOME`) or, for InsightFace, in
+`~/.insightface`. None of them are in this repository - see
+`configs/models.yaml` for the registry.
+
+Install the pre-commit hook before working on this:
+
+    git config core.hooksPath .githooks
 
 ## Pipeline
 
@@ -120,12 +157,17 @@ registry, including licence per model.
     scripts/build_embeddings.py          SigLIP2 image index
     scripts/build_caption_embeddings.py  BGE caption index
     scripts/build_visual_embeddings.py   DINOv2 visual index
+    scripts/build_faces.py               face detection (resumable)
+    scripts/cluster_faces.py             DBSCAN clustering + contact sheet
+    scripts/label_faces.py               assign names to clusters
     scripts/find_duplicates.py           three-tier duplicate report
     scripts/search_hybrid.py             console search
     scripts/search_gallery.py            HTML gallery
+    scripts/status.py                    staleness check
 
-Retrieval logic is shared in `src/visualmind/retrieval.py` so the two
-search entry points cannot drift apart.
+Shared logic lives in `src/visualmind/` - `retrieval.py` for search,
+`people.py` for name resolution - so the two search entry points cannot
+drift apart.
 
 Each stage takes its source path as an argument; nothing is hardcoded. The
 catalog matches files to provenance records by SHA-256 as well as by path,
@@ -134,19 +176,30 @@ metadata.
 
 ## Data handling
 
-Photos, captions, embeddings, and indexes are all gitignored. Caption text
-and lookup CSVs describe private images and are treated as sensitive. The
-source archive is read-only and never modified. No script deletes or moves
-a source file.
+Photos, captions, embeddings, indexes, face data, and person labels are all
+gitignored, and a pre-commit hook refuses to stage them regardless. Face
+embeddings are biometric identifiers for identifiable people; caption text
+and lookup CSVs describe private photographs.
+
+The hook is local and does not travel with a clone - install it as above.
+
+The source archive is read-only. No script moves or deletes a source file.
 
 ## Status
 
-Working: ingestion, captioning, three indexes, hybrid search, derived
-result counts, HTML gallery, duplicate detection.
+Working: ingestion, captioning, three content indexes, hybrid search,
+derived result counts, HTML gallery, duplicate detection, face detection
+and clustering, person-filtered search, staleness checking.
 
-Not yet built: face clustering, event grouping, dynamic taxonomy, web UI.
+Not yet built: event grouping, dynamic taxonomy, web UI, agentic
+organisation.
 
-## Licence
+## Licences
 
-MIT. Note that model licences differ - `configs/models.yaml` records each
-one. All models currently in use are Apache 2.0 or MIT.
+The code is MIT.
+
+Model licences differ, and one is restrictive. InsightFace's pretrained
+models are licensed for non-commercial research use only; commercial use
+requires a separate licence from InsightFace. Everything else in use is
+Apache 2.0 or MIT. `configs/models.yaml` records the licence for each
+model, and `check_models.py` prints them.
