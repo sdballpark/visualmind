@@ -48,3 +48,6 @@ logs/
 indexes/
 data/metadata/
 outputs/
+
+# Local eval artifacts — contain private image data
+evals/baseline-*/
