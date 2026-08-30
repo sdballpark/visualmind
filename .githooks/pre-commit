@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Block sensitive artifacts from ever entering a commit.
+#
+# .gitignore is a convention; this is enforcement. Face embeddings are
+# biometric identifiers for identifiable people. Captions and lookup CSVs
+# describe private photographs. None of it belongs in a public repository,
+# and a gitignore pattern that misses one file fails silently.
+#
+# Install: git config core.hooksPath .githooks
+# Bypass (deliberately): git commit --no-verify
+
+set -euo pipefail
+
+BLOCKED='(^|/)(captions\.csv|caption_lookup\.csv|siglip2_lookup\.csv|dinov2_lookup\.csv|face_lookup\.csv|person_labels\.json|duplicate_groups\.csv|image_catalog\.csv)$|\.npy$|(^|/)(indexes|outputs)/|\.(jpe?g|png|gif|tiff?|heic|webp|bmp)$'
+
+ALLOWED='(^|/)person_labels\.example\.json$|(^|/)docs/'
+
+staged=$(git diff --cached --name-only --diff-filter=AM)
+
+offenders=""
+
+for file in $staged; do
+    if [[ "$file" =~ $ALLOWED ]]; then
+        continue
+    fi
+
+    if [[ "$file" =~ $BLOCKED ]]; then
+        offenders="${offenders}  ${file}"$'\n'
+    fi
+done
+
+if [[ -n "$offenders" ]]; then
+    echo ""
+    echo "COMMIT BLOCKED - sensitive artifacts staged:"
+    echo ""
+    echo "$offenders"
+    echo "These describe private photographs or are biometric data."
+    echo "Unstage them:"
+    echo ""
+    echo "  git restore --staged <file>"
+    echo ""
+    echo "If this is genuinely a false positive, bypass with:"
+    echo ""
+    echo "  git commit --no-verify"
+    echo ""
+    exit 1
+fi
+
+exit 0
