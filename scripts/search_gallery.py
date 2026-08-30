@@ -104,6 +104,17 @@ def main():
         default=20,
     )
 
+    parser.add_argument(
+        "--min-score",
+        type=float,
+        default=0.0,
+        help=(
+            "Drop results below this cosine similarity. "
+            "SigLIP scores are compressed near zero; "
+            "0.06 is a reasonable starting floor."
+        ),
+    )
+
     args = parser.parse_args()
 
     if not torch.cuda.is_available():
@@ -171,6 +182,18 @@ def main():
     top_k = min(args.top_k, len(scores))
 
     indices = np.argsort(scores)[::-1][:top_k]
+
+    if args.min_score > 0.0:
+        kept = [i for i in indices if scores[i] >= args.min_score]
+        dropped = len(indices) - len(kept)
+
+        if dropped:
+            print(
+                f"Filtered {dropped} result(s) below "
+                f"min-score {args.min_score:.4f}"
+            )
+
+        indices = kept
 
     cards = []
 
@@ -348,7 +371,7 @@ h1 {{
     print("VISUALMIND SEARCH GALLERY CREATED")
     print("=" * 72)
     print(f"Query:   {args.query}")
-    print(f"Results: {top_k}")
+    print(f"Results: {len(indices)}")
     print(f"Gallery: {output_path.resolve()}")
     print("=" * 72)
     print()
