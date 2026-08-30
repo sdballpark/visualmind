@@ -102,41 +102,60 @@ since the score scales are not comparable - SigLIP sits near 0.10, BGE near
 ## Finding 6 - a derived result count outperforms a fixed one
 
 Rather than always returning k results, the search derives how many to
-return from two signals:
+return from three signals, in descending order of confidence:
 
-1. Caption term matching. If every content word of the query appears in a
-   caption, those images are ground truth - they set both the count and the
-   result set.
-2. Score gradient. Where the similarity curve flattens, useful results have
+1. Full caption term match. Every content word of the query appears in a
+   caption. Those images set both the count and the result set.
+2. Partial caption term match. At least two content words appear. Ranked by
+   how many matched, then by fused score.
+3. Score gradient. Where the similarity curve flattens, useful results have
    ended.
 
-Measured over eight queries:
+Measured over nine queries:
 
-| Query                      | Basis          | Returned | Correct |
-|----------------------------|----------------|----------|---------|
-| "dog"                      | caption match  | 20       | 20      |
-| "christmas tree"           | caption match  | 4        | 4       |
-| "beach"                    | caption match  | 20       | 20      |
-| "birthday cake"            | caption match  | 16       | 16      |
-| "wedding"                  | caption match  | 11       | 11      |
-| "swimming pool"            | caption match  | 6        | 6       |
-| "people wearing sunglasses"| caption match  | 10       | 10      |
-| "a red car"                | caption match  | 3        | 3       |
-| "someone holding a baby"   | score gradient | 40       | partial |
+| Query                       | Basis         | Returned | Correct |
+|-----------------------------|---------------|----------|---------|
+| "dog"                       | full match    | 20       | 20      |
+| "christmas tree"            | full match    | 4        | 4       |
+| "beach"                     | full match    | 20       | 20      |
+| "birthday cake"             | full match    | 16       | 16      |
+| "wedding"                   | full match    | 11       | 11      |
+| "swimming pool"             | full match    | 6        | 6       |
+| "people wearing sunglasses" | full match    | 10       | 10      |
+| "a red car"                 | full match    | 3        | 3       |
+| "someone holding a baby"    | full match    | 18       | 15      |
 
-The seven caption-matched queries returned 90 images with no false
-positives. Compare the same corpus under fixed top-12: "dog" returned 10
-correct of 12, missing 10 dogs that exist.
+Compare the same corpus under fixed top-12: "dog" returned 10 correct of 12,
+missing 10 dogs that exist.
 
-The two paths are not equivalent. Caption matching is exact. The gradient
-path degrades: "someone holding a baby" found no literal match (the
-stopword list does not cover "someone", and matching requires every content
-word), fell through to the gradient, and hit its 40-result ceiling rather
-than detecting a plateau. Results were relevant at the top and drifted to
-adjacent concepts by rank 38 - babies present rather than babies held.
+### Precision splits by query type
 
-So the gradient path currently signals "no confident cutoff" by returning
-its maximum, which reads like an answer but is not one.
+| Query type      | Queries | Images | Precision |
+|-----------------|---------|--------|-----------|
+| Concrete nouns  | 8       | 90     | 100%      |
+| Relational      | 1       | 18     | 83%       |
+
+Term matching is exact when the query names objects. It degrades when the
+query expresses a relation between terms, because bag-of-words matching has
+no notion of subject and object.
+
+The three misses on "someone holding a baby" are all of that kind: two
+photos of a baby holding something else, and a baby shower invitation where
+a person holds a card. Every one contains both "holding" and "baby" in its
+caption; none shows a person holding a baby.
+
+A likely improvement is to weight the fused semantic score more heavily
+within the matched set. BGE already ranks these correctly - it understands
+the relation - but the current implementation treats all term matches as
+equally valid before ordering them.
+
+### Stopwords matter more than expected
+
+"someone holding a baby" initially found no full match and fell through to
+the gradient path, returning 40 results. The only blocker was the word
+"someone", which appears in no caption. Adding it and similar generic terms
+("people", "photo", "person") to the stopword list converted the query from
+a 40-result guess to an 18-result set at 83% precision.
 
 ## Note on SigLIP score scale
 
@@ -147,21 +166,21 @@ typical of CLIP. A score of 0.10 here is a strong match, not a weak one.
 ## Implications
 
 - Deriving the result count is the single largest accuracy improvement made:
-  100% precision on caption-matched queries against 83% on a fixed top-12,
-  with double the recall.
+  100% precision on noun queries against 83% on a fixed top-12, with double
+  the recall.
 - A bigger embedding model is not the fix for small-object retrieval - that
   was tested and regressed.
 - Captions introduce a new failure mode: depicted-vs-present objects (the
   cat statue, a cat graphic on a shirt) match textually but are not what the
   user means. Qwen sometimes flags this unprompted, appending "no animals
   are visible besides the statue" - a signal that could be exploited.
-- The gradient ceiling needs to report low confidence rather than return 40
-  results.
+- Relational queries need the semantic index to do more of the ranking work
+  than term matching currently allows.
 
 ## Not yet tested
 
 - Whether the resolution gap holds on the post-2015 subset
 - Hybrid fusion on queries where the two indexes disagree
-- Partial caption matching (any content word rather than all) for queries
-  like "someone holding a baby"
-- Weighting fusion by query type rather than fusing equally
+- Weighting the semantic score within the term-matched set
+- Whether a caption prompt that names subject-object relations explicitly
+  would fix the relational failures at the source
