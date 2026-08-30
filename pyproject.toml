@@ -12,6 +12,7 @@ dependencies = [
     "pillow>=12.3.0",
     "pillow-heif>=1.5.0",
     "accelerate>=1.14.0",
+    "imagehash>=4.3.2",
 ]
 
 [dependency-groups]
