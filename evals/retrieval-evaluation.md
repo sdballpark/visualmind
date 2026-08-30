@@ -106,8 +106,7 @@ return from three signals, in descending order of confidence:
 
 1. Full caption term match. Every content word of the query appears in a
    caption. Those images set both the count and the result set.
-2. Partial caption term match. At least two content words appear. Ranked by
-   how many matched, then by fused score.
+2. Partial caption term match. At least two content words appear.
 3. Score gradient. Where the similarity curve flattens, useful results have
    ended.
 
@@ -144,11 +143,6 @@ photos of a baby holding something else, and a baby shower invitation where
 a person holds a card. Every one contains both "holding" and "baby" in its
 caption; none shows a person holding a baby.
 
-A likely improvement is to weight the fused semantic score more heavily
-within the matched set. BGE already ranks these correctly - it understands
-the relation - but the current implementation treats all term matches as
-equally valid before ordering them.
-
 ### Stopwords matter more than expected
 
 "someone holding a baby" initially found no full match and fell through to
@@ -156,6 +150,36 @@ the gradient path, returning 40 results. The only blocker was the word
 "someone", which appears in no caption. Adding it and similar generic terms
 ("people", "photo", "person") to the stopword list converted the query from
 a 40-result guess to an 18-result set at 83% precision.
+
+## Finding 7 - semantic reranking did not fix relational queries
+
+Finding 6 suggested weighting the caption semantic score within the
+term-matched set, on the theory that BGE understands "holding a baby" as a
+relation even though term matching does not. Tested and rejected.
+
+Reordering the 18-image set by caption score instead of RRF left precision
+unchanged at 15/18. The two subject/object errors ranked 14th and 15th of
+18 - mid-pack, with two correct matches below them. BGE does not separate
+these cases.
+
+Adding a trim, discarding entries whose caption score trails the set:
+
+| Approach                  | Returned | Correct | Precision |
+|---------------------------|----------|---------|-----------|
+| RRF order, no trim        | 18       | 15      | 83.3%     |
+| Caption order, no trim    | 18       | 15      | 83.3%     |
+| Caption order, with trim  | 16       | 14      | 87.5%     |
+
+The trim bought 4 points of precision by discarding one true match and one
+false one. Since the mechanism it relied on does not hold, that gain is
+incidental.
+
+Trimming ships behind a `--trim` flag, off by default. A false positive is
+visible and can be ignored; a silently omitted true match cannot. For a
+personal archive that asymmetry decides it.
+
+Caption-score ordering is kept as the default within matched sets - no worse
+than RRF and easier to explain.
 
 ## Note on SigLIP score scale
 
@@ -170,17 +194,18 @@ typical of CLIP. A score of 0.10 here is a strong match, not a weak one.
   the recall.
 - A bigger embedding model is not the fix for small-object retrieval - that
   was tested and regressed.
+- Neither is semantic reranking the fix for relational queries - also tested
+  and regressed.
 - Captions introduce a new failure mode: depicted-vs-present objects (the
   cat statue, a cat graphic on a shirt) match textually but are not what the
   user means. Qwen sometimes flags this unprompted, appending "no animals
   are visible besides the statue" - a signal that could be exploited.
-- Relational queries need the semantic index to do more of the ranking work
-  than term matching currently allows.
 
 ## Not yet tested
 
 - Whether the resolution gap holds on the post-2015 subset
 - Hybrid fusion on queries where the two indexes disagree
-- Weighting the semantic score within the term-matched set
 - Whether a caption prompt that names subject-object relations explicitly
   would fix the relational failures at the source
+- Whether an LLM pass over the matched captions could filter subject/object
+  errors that embeddings cannot
