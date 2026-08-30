@@ -31,6 +31,21 @@ def main():
         default=retrieval.MIN_PARTIAL_TERMS,
     )
     parser.add_argument(
+        "--trim",
+        action="store_true",
+        help=(
+            "Discard term-matched results whose caption score trails the "
+            "set. Off by default: it cost a true match on the one "
+            "relational query tested."
+        ),
+    )
+    parser.add_argument(
+        "--semantic-drop",
+        type=float,
+        default=retrieval.SEMANTIC_DROP,
+        help="Trim threshold as a fraction of the set's score range.",
+    )
+    parser.add_argument(
         "--mode",
         choices=["hybrid", "image", "caption"],
         default="hybrid",
@@ -54,6 +69,8 @@ def main():
         rrf_k=args.rrf_k,
         gradient_floor=args.gradient_floor,
         min_partial_terms=args.min_partial_terms,
+        semantic_drop=args.semantic_drop,
+        trim=args.trim,
     )
 
     img_note = "" if outcome["img_plateau"] else "  (ceiling, no plateau)"
@@ -93,13 +110,23 @@ def main():
             mark = "  "
 
         print("#" + str(rank) + mark + "  " + name)
-        print("     rrf=" + format(score, ".5f")
+        print("     score=" + format(score, ".5f")
               + "  image_rank=" + str(outcome["image_rank"].get(path, "-"))
               + "  caption_rank="
               + str(outcome["caption_rank"].get(path, "-")))
 
         if args.captions:
             print("     " + row.get("caption", "")[:150])
+
+        print()
+
+    if outcome["trimmed"]:
+        print("Trimmed " + str(len(outcome["trimmed"]))
+              + " result(s) below the caption-score threshold:")
+
+        for path in outcome["trimmed"]:
+            print("  - " + by_path.get(path, {}).get(
+                "filename", Path(path).name))
 
         print()
 

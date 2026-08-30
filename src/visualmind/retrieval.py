@@ -2,6 +2,17 @@
 
 Both scripts/search_hybrid.py (console) and scripts/search_gallery.py
 (HTML) import from here so their behaviour cannot drift apart.
+
+Term matching decides which images are candidates; the caption semantic
+score decides their order. Term matching has no notion of subject and
+object - "holding" and "baby" both appear in a caption describing a baby
+holding a ladle - so it bounds the candidate set rather than ranking it.
+
+Trimming the tail of a matched set by caption score is available behind
+the `trim` flag but is off by default. Measured on a relational query it
+raised precision from 83% to 87.5% while discarding a correct match, and
+the errors it was meant to catch scored mid-pack rather than last. See
+evals/retrieval-evaluation.md.
 """
 import csv
 import re
@@ -25,6 +36,7 @@ RRF_K = 60
 MIN_PARTIAL_TERMS = 2
 GRADIENT_CEILING = 40
 GRADIENT_FLOOR = 0.35
+SEMANTIC_DROP = 0.80
 
 STOPWORDS = {
     "a", "an", "the", "of", "in", "on", "at", "with", "and", "or",
@@ -162,14 +174,39 @@ def rrf(paths, k):
     }
 
 
+def semantic_order(paths, cap_by_path, drop_ratio, trim):
+    """Order a candidate set by caption similarity.
+
+    Returns (kept, trimmed). When `trim` is False nothing is discarded,
+    which is the default: a silently omitted true match is worse than a
+    visible false positive in a personal archive.
+    """
+    ranked = sorted(paths, key=lambda p: cap_by_path[p], reverse=True)
+
+    if not trim or len(ranked) < 4:
+        return ranked, []
+
+    best = cap_by_path[ranked[0]]
+    worst = cap_by_path[ranked[-1]]
+    spread = best - worst
+
+    if spread <= 0:
+        return ranked, []
+
+    threshold = best - drop_ratio * spread
+
+    kept = [p for p in ranked if cap_by_path[p] >= threshold]
+    dropped = [p for p in ranked if cap_by_path[p] < threshold]
+
+    return kept, dropped
+
+
 def search(query, mode="hybrid", top_k=0, rrf_k=RRF_K,
            gradient_floor=GRADIENT_FLOOR,
-           min_partial_terms=MIN_PARTIAL_TERMS):
-    """Run hybrid retrieval and derive a result count.
-
-    Returns a dict with the ordered results and the diagnostics needed to
-    explain how the count was reached.
-    """
+           min_partial_terms=MIN_PARTIAL_TERMS,
+           semantic_drop=SEMANTIC_DROP,
+           trim=False):
+    """Run hybrid retrieval and derive a result count."""
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA unavailable.")
 
@@ -182,6 +219,11 @@ def search(query, mode="hybrid", top_k=0, rrf_k=RRF_K,
     cap_paths = [
         cap_lookup[i]["source_path"] for i in np.argsort(cap_s)[::-1]
     ]
+
+    cap_by_path = {
+        row["source_path"]: float(cap_s[i])
+        for i, row in enumerate(cap_lookup)
+    }
 
     img_rrf = rrf(img_paths, rrf_k)
     cap_rrf = rrf(cap_paths, rrf_k)
@@ -208,34 +250,45 @@ def search(query, mode="hybrid", top_k=0, rrf_k=RRF_K,
     cap_cut, cap_found = gradient_cutoff(cap_s, gradient_floor)
 
     low_confidence = False
+    trimmed = []
 
     if top_k:
         results = ordered[:top_k]
         basis = "fixed count (--top-k " + str(top_k) + ")"
         matched = set()
     elif full:
-        results = [item for item in ordered if item[0] in full]
-        basis = ("full caption match - " + str(len(full))
-                 + " images contain all " + str(total_terms) + (" term" if total_terms == 1 else " terms"))
+        kept, trimmed = semantic_order(
+            list(full), cap_by_path, semantic_drop, trim
+        )
+        results = [(p, cap_by_path[p]) for p in kept]
         matched = full
+        basis = ("full caption match - " + str(len(full)) + " of "
+                 + str(len(cap_lookup)) + " captions contain all "
+                 + str(total_terms)
+                 + (" term" if total_terms == 1 else " terms"))
     elif partial:
-        subset = [item for item in ordered if item[0] in partial]
-        subset.sort(key=lambda kv: (hits[kv[0]], kv[1]), reverse=True)
-        results = subset
+        kept, trimmed = semantic_order(
+            list(partial), cap_by_path, semantic_drop, trim
+        )
+        results = [(p, cap_by_path[p]) for p in kept]
+        matched = partial
         basis = ("partial caption match - at least " + str(threshold)
                  + " of " + str(total_terms) + " terms")
-        matched = partial
     else:
         results = ordered[:max(img_cut, cap_cut)]
         basis = "score gradient - no caption mentions these terms"
         matched = set()
         low_confidence = not (img_found or cap_found)
 
+    if trimmed:
+        basis += ", " + str(len(trimmed)) + " trimmed by caption score"
+
     return {
         "results": results,
         "basis": basis,
         "matched": matched,
         "hits": hits,
+        "trimmed": trimmed,
         "total_terms": total_terms,
         "full_count": len(full),
         "partial_count": len(partial),
@@ -245,6 +298,7 @@ def search(query, mode="hybrid", top_k=0, rrf_k=RRF_K,
         "cap_plateau": cap_found,
         "low_confidence": low_confidence,
         "caption_lookup": cap_lookup,
+        "caption_score": cap_by_path,
         "image_rank": {p: i for i, p in enumerate(img_paths, start=1)},
         "caption_rank": {p: i for i, p in enumerate(cap_paths, start=1)},
     }

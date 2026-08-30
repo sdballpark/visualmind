@@ -31,8 +31,13 @@ h1 { margin-bottom: 4px; }
          margin: 10px 0 24px; }
 .basis.gradient { background: #8a6d1f; }
 .basis.warn { background: #8a1f1f; }
-.note { background: #fff3f3; border-left: 4px solid #8a1f1f; padding: 12px 16px;
-        margin-bottom: 24px; font-size: 13px; line-height: 1.5; }
+.note { background: #fff3f3; border-left: 4px solid #8a1f1f;
+        padding: 12px 16px; margin-bottom: 24px; font-size: 13px;
+        line-height: 1.5; }
+.trimmed { background: #fdf6e3; border-left: 4px solid #8a6d1f;
+           padding: 12px 16px; margin-bottom: 24px; font-size: 13px;
+           line-height: 1.6; }
+.trimmed ul { margin: 6px 0 0; padding-left: 20px; }
 .grid { display: grid;
         grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
         gap: 22px; }
@@ -41,8 +46,9 @@ h1 { margin-bottom: 4px; }
 .card img { display: block; width: 100%; height: 280px; object-fit: contain;
             background: #111; }
 .content { padding: 14px 16px 18px; }
-.rank { position: absolute; top: 10px; left: 10px; background: #000; color: #fff;
-        padding: 5px 9px; border-radius: 6px; font-weight: 600; font-size: 13px; }
+.rank { position: absolute; top: 10px; left: 10px; background: #000;
+        color: #fff; padding: 5px 9px; border-radius: 6px; font-weight: 600;
+        font-size: 13px; }
 .terms { position: absolute; top: 10px; right: 10px; background: #1f6f3f;
          color: #fff; padding: 5px 9px; border-radius: 6px; font-size: 12px; }
 .name { font-weight: 600; margin-bottom: 6px; word-break: break-all; }
@@ -98,7 +104,7 @@ def render(query, outcome, mode, rrf_k):
             + '<img src="' + thumb + '" alt="' + html.escape(name) + '">'
             + '<div class="content">'
             + '<div class="name">' + html.escape(name) + "</div>"
-            + '<div class="ranks">rrf ' + format(score, ".5f")
+            + '<div class="ranks">score ' + format(score, ".5f")
             + " &nbsp;|&nbsp; image #" + str(img_rank.get(path, "-"))
             + " &nbsp;|&nbsp; caption #" + str(cap_rank.get(path, "-"))
             + "</div>"
@@ -125,6 +131,23 @@ def render(query, outcome, mode, rrf_k):
             "matches. Treat the count as a ceiling, not an answer.</div>"
         )
 
+    trimmed_block = ""
+
+    if outcome["trimmed"]:
+        items = "".join(
+            "<li>" + html.escape(
+                by_path.get(p, {}).get("filename", Path(p).name)
+            ) + "</li>"
+            for p in outcome["trimmed"]
+        )
+        trimmed_block = (
+            '<div class="trimmed"><strong>'
+            + str(len(outcome["trimmed"]))
+            + " result(s) trimmed</strong> for trailing the set on caption "
+            + "score. These matched every query term:<ul>" + items
+            + "</ul></div>"
+        )
+
     img_note = "" if outcome["img_plateau"] else " (ceiling)"
     cap_note = "" if outcome["cap_plateau"] else " (ceiling)"
 
@@ -143,6 +166,7 @@ def render(query, outcome, mode, rrf_k):
         + str(len(outcome["results"])) + " - "
         + html.escape(outcome["basis"]) + "</div>"
         + note
+        + trimmed_block
         + '<div class="grid">' + "".join(cards) + "</div>"
         + "</body></html>"
     )
@@ -169,6 +193,21 @@ def main():
         default=retrieval.MIN_PARTIAL_TERMS,
     )
     parser.add_argument(
+        "--trim",
+        action="store_true",
+        help=(
+            "Discard term-matched results whose caption score trails the "
+            "set. Off by default: it cost a true match on the one "
+            "relational query tested."
+        ),
+    )
+    parser.add_argument(
+        "--semantic-drop",
+        type=float,
+        default=retrieval.SEMANTIC_DROP,
+        help="Trim threshold as a fraction of the set's score range.",
+    )
+    parser.add_argument(
         "--mode",
         choices=["hybrid", "image", "caption"],
         default="hybrid",
@@ -182,6 +221,8 @@ def main():
         rrf_k=args.rrf_k,
         gradient_floor=args.gradient_floor,
         min_partial_terms=args.min_partial_terms,
+        semantic_drop=args.semantic_drop,
+        trim=args.trim,
     )
 
     page = render(args.query, outcome, args.mode, args.rrf_k)
@@ -198,6 +239,11 @@ def main():
     print("Mode:     " + args.mode)
     print("Returned: " + str(len(outcome["results"]))
           + "  (" + outcome["basis"] + ")")
+
+    if outcome["trimmed"]:
+        print("Trimmed:  " + str(len(outcome["trimmed"]))
+              + "  (listed in the gallery)")
+
     print("Gallery:  " + str(output_path.resolve()))
     print("=" * 72)
     print()
