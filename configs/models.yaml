@@ -46,3 +46,27 @@ models:
     purpose: caption embeddings for hybrid text/image retrieval
     precision: float32
     status: active
+
+  face_detection:
+    provider: insightface
+    repo_id: buffalo_l
+    revision: unversioned
+    license: non-commercial-research-only
+    license_note: InsightFace pretrained models require a separate licence for commercial use.
+    purpose: face detection (SCRFD) and 512-d recognition embeddings (ArcFace)
+    precision: float32
+    runtime: onnxruntime CPU - onnxruntime-gpu is shadowed by the CPU package
+    cache: ~/.insightface (not HF_HOME)
+    status: active
+
+  face_detection:
+    provider: insightface
+    repo_id: buffalo_l
+    revision: unversioned
+    license: non-commercial-research-only
+    license_note: InsightFace pretrained models require a separate licence for commercial use.
+    purpose: face detection (SCRFD) and 512-d recognition embeddings (ArcFace)
+    precision: float32
+    runtime: onnxruntime CPU - onnxruntime-gpu is shadowed by the CPU package
+    cache: ~/.insightface (not HF_HOME)
+    status: active
