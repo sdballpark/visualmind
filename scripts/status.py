@@ -23,6 +23,7 @@ CAPTIONS = Path("data/metadata/captions.csv")
 DUPLICATES = Path("data/metadata/duplicate_groups.csv")
 CLUSTERS = Path("data/metadata/face_clusters.csv")
 LABELS = Path("data/metadata/person_labels.json")
+EVENTS = Path("data/metadata/events.csv")
 INDEX_DIR = Path("indexes")
 
 COVERAGE = [
@@ -175,6 +176,29 @@ def main():
 
         if uncovered:
             stale.append(("face clusters", "cluster_faces.py", note))
+
+    # Events come from the catalog's EXIF, not from an index.
+    event_rows = read_rows(EVENTS)
+
+    if not event_rows:
+        print("events           not built".ljust(40) + "build_events.py")
+    else:
+        covered = {r["source_path"] for r in event_rows}
+        missing = catalog_paths - covered
+        placed = {r["source_path"] for r in event_rows
+                  if r["event_id"] != "unassigned"}
+        count = len({r["event_id"] for r in event_rows
+                     if r["event_id"] != "unassigned"})
+
+        note = "OK" if not missing else (
+            str(len(missing)) + " catalog images not covered")
+
+        print("events           " + str(count) + " events over "
+              + str(len(placed)) + " images, " + str(len(covered) - len(placed))
+              + " unassigned, built " + age(EVENTS) + " - " + note)
+
+        if missing:
+            stale.append(("events", "build_events.py", note))
 
     if LABELS.exists():
         labels = json.loads(LABELS.read_text(encoding="utf-8"))
