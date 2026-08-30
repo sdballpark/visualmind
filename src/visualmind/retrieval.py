@@ -8,16 +8,17 @@ score decides their order. Term matching has no notion of subject and
 object - "holding" and "baby" both appear in a caption describing a baby
 holding a ladle - so it bounds the candidate set rather than ranking it.
 
-People are a hard pre-filter applied before any scoring. A request for
-photos of a named person means only photos containing that person, so
-they constrain the candidate pool rather than nudging a ranking. Names
-come from an explicit argument, never parsed out of the query text: no
-model has seen the label file, and guessing which words are names fails
-in ways that are hard to explain.
+People and events are hard pre-filters applied before any scoring, and
+they compose: naming both narrows to their intersection. Several people
+must all be present; several events are a union, since an image belongs
+to exactly one event.
 
-A person filter with no text query returns the whole filtered pool.
-There is nothing to rank by, so results come back in catalog order
-rather than in an order manufactured from an empty embedding.
+Names and event references come from explicit arguments, never parsed
+out of the query text. No model has seen those label files, and guessing
+which words are names fails in ways that are hard to explain.
+
+A filter with no text query returns the whole filtered pool in catalog
+order, rather than an order manufactured from an empty embedding.
 
 Trimming the tail of a matched set by caption score is available behind
 the `trim` flag but is off by default. See evals/retrieval-evaluation.md.
@@ -32,6 +33,7 @@ import torch.nn.functional as F
 import yaml
 from transformers import AutoModel, AutoProcessor, AutoTokenizer
 
+from visualmind import events as events_module
 from visualmind import people
 
 MODEL_CONFIG = Path("configs/models.yaml")
@@ -205,8 +207,32 @@ def semantic_order(paths, cap_by_path, drop_ratio, trim):
     return kept, dropped
 
 
-def empty_result(cap_lookup, corpus_size, resolved_people, person_counts,
-                 allowed, basis):
+def combine_filters(persons, event_names):
+    """Intersect the person and event filters.
+
+    Returns (allowed, people_names, person_counts, event_names,
+    event_counts). `allowed` is None when neither filter was requested.
+    """
+    person_paths, resolved_people, person_counts = people.filter_paths(
+        persons or []
+    )
+    event_paths, resolved_events, event_counts = (
+        events_module.filter_paths(event_names or [])
+    )
+
+    if person_paths is None:
+        allowed = event_paths
+    elif event_paths is None:
+        allowed = person_paths
+    else:
+        allowed = person_paths & event_paths
+
+    return (allowed, resolved_people, person_counts,
+            resolved_events, event_counts)
+
+
+def empty_result(cap_lookup, allowed, basis, resolved_people,
+                 person_counts, resolved_events, event_counts):
     order = [
         row["source_path"] for row in cap_lookup
         if allowed is None or row["source_path"] in allowed
@@ -230,7 +256,9 @@ def empty_result(cap_lookup, corpus_size, resolved_people, person_counts,
         "caption_score": {},
         "people": resolved_people,
         "person_counts": person_counts,
-        "corpus_size": corpus_size,
+        "events": resolved_events,
+        "event_counts": event_counts,
+        "corpus_size": len(cap_lookup),
         "pool_size": len(order),
         "image_rank": {},
         "caption_rank": {},
@@ -242,30 +270,34 @@ def search(query, mode="hybrid", top_k=0, rrf_k=RRF_K,
            min_partial_terms=MIN_PARTIAL_TERMS,
            semantic_drop=SEMANTIC_DROP,
            trim=False,
-           persons=None):
+           persons=None,
+           event_names=None):
     """Run hybrid retrieval and derive a result count."""
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA unavailable.")
 
-    allowed, resolved_people, person_counts = people.filter_paths(
-        persons or []
-    )
+    (allowed, resolved_people, person_counts,
+     resolved_events, event_counts) = combine_filters(persons, event_names)
 
-    # No text to rank by. With a person filter this is a legitimate
-    # request - "every photo of these people" - and the whole pool is the
-    # answer. Without one there is nothing to return.
     if not content_terms(query):
         cap_lookup = read_lookup(CAPTION_LOOKUP)
 
-        if allowed is None:
-            basis = "no query and no person filter"
+        parts = []
+
+        if resolved_people:
+            parts.append(" and ".join(resolved_people))
+
+        if resolved_events:
+            parts.append(" or ".join(resolved_events))
+
+        if parts:
+            basis = "filter only - " + ", within ".join(parts)
         else:
-            basis = ("person filter only - every image containing "
-                     + " and ".join(resolved_people))
+            basis = "no query and no filter"
 
         return empty_result(
-            cap_lookup, len(cap_lookup), resolved_people, person_counts,
-            allowed, basis,
+            cap_lookup, allowed, basis, resolved_people, person_counts,
+            resolved_events, event_counts,
         )
 
     img_s, img_lookup = image_scores(query)
@@ -329,7 +361,7 @@ def search(query, mode="hybrid", top_k=0, rrf_k=RRF_K,
 
     if not ordered:
         results = []
-        basis = "no images match the person filter"
+        basis = "no images match the filter"
         matched = set()
     elif top_k:
         results = ordered[:top_k]
@@ -380,6 +412,8 @@ def search(query, mode="hybrid", top_k=0, rrf_k=RRF_K,
         "caption_score": cap_by_path,
         "people": resolved_people,
         "person_counts": person_counts,
+        "events": resolved_events,
+        "event_counts": event_counts,
         "corpus_size": corpus_size,
         "pool_size": pool,
         "image_rank": {p: i for i, p in enumerate(img_paths, start=1)},

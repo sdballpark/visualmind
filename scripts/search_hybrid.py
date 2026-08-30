@@ -7,7 +7,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from visualmind import people, retrieval
+from visualmind import events, people, retrieval
 
 
 def list_people():
@@ -23,17 +23,50 @@ def list_people():
     print("KNOWN PEOPLE - " + str(len(roster)))
     print("=" * 76)
     print()
-    print("NAME".ljust(30) + "IMAGES".rjust(8) + "FACES".rjust(8))
+    print("NAME".ljust(32) + "IMAGES".rjust(8) + "FACES".rjust(8))
     print("-" * 76)
 
     for entry in roster:
-        print(entry["name"].ljust(30)
+        print(entry["name"].ljust(32)
               + str(entry["images"]).rjust(8)
               + str(entry["faces"]).rjust(8))
 
     print()
-    print("Filter a search with: --person \"Lisa Bogan\"")
+    print('Filter with: --person "Lisa Bogan"')
     print("Partial names work when unambiguous: --person lisa")
+    print()
+
+    return 0
+
+
+def list_events():
+    roster = events.roster()
+
+    if not roster:
+        print("No events. Run build_events.py.")
+        return 1
+
+    print()
+    print("=" * 76)
+    print("EVENTS - " + str(len(roster)))
+    print("=" * 76)
+    print()
+    print("ID".ljust(14) + "IMAGES".rjust(7) + "  " + "DATE".ljust(13)
+          + "NAME")
+    print("-" * 76)
+
+    for entry in roster:
+        start = (entry["start"] or "")[:10]
+
+        print(entry["id"].ljust(14)
+              + str(entry["images"]).rjust(7) + "  "
+              + start.ljust(13)
+              + entry["name"][:42])
+
+    print()
+    print("Filter with: --event event-025")
+    print("Or by date prefix: --event 2005-09")
+    print("Or by name: --event \"Happy Birthday Andrew\"")
     print()
 
     return 0
@@ -53,10 +86,17 @@ def main():
         ),
     )
     parser.add_argument(
-        "--list-people",
-        action="store_true",
-        help="Show known people and exit.",
+        "--event",
+        action="append",
+        default=[],
+        metavar="REF",
+        help=(
+            "Only images from this event. Accepts an id, a date prefix, "
+            "or a name. Repeat for several - any of them matches."
+        ),
     )
+    parser.add_argument("--list-people", action="store_true")
+    parser.add_argument("--list-events", action="store_true")
     parser.add_argument(
         "--top-k",
         type=int,
@@ -74,15 +114,7 @@ def main():
         type=int,
         default=retrieval.MIN_PARTIAL_TERMS,
     )
-    parser.add_argument(
-        "--trim",
-        action="store_true",
-        help=(
-            "Discard term-matched results whose caption score trails the "
-            "set. Off by default: it cost a true match on the one "
-            "relational query tested."
-        ),
-    )
+    parser.add_argument("--trim", action="store_true")
     parser.add_argument(
         "--semantic-drop",
         type=float,
@@ -93,18 +125,18 @@ def main():
         choices=["hybrid", "image", "caption"],
         default="hybrid",
     )
-    parser.add_argument(
-        "--captions",
-        action="store_true",
-        help="Print the caption under each result.",
-    )
+    parser.add_argument("--captions", action="store_true")
     args = parser.parse_args()
 
     if args.list_people:
         return list_people()
 
-    if not args.query and not args.person:
-        parser.error("give a query, --person, or --list-people")
+    if args.list_events:
+        return list_events()
+
+    if not args.query and not args.person and not args.event:
+        parser.error(
+            "give a query, --person, --event, or a listing option")
 
     print()
     print("=" * 76)
@@ -122,44 +154,46 @@ def main():
             semantic_drop=args.semantic_drop,
             trim=args.trim,
             persons=args.person,
+            event_names=args.event,
         )
-    except people.AmbiguousName as error:
-        print()
-        print(str(error))
-        print()
-        print("Use a fuller name.")
-        print()
-        return 1
-    except people.UnknownName as error:
+    except (people.AmbiguousName, people.UnknownName) as error:
         print()
         print(str(error))
         print()
         print("See --list-people.")
         print()
         return 1
+    except (events.AmbiguousEvent, events.UnknownEvent) as error:
+        print()
+        print(str(error))
+        print()
+        print("See --list-events.")
+        print()
+        return 1
 
-    if outcome["people"]:
+    if outcome["people"] or outcome["events"]:
         print()
         print("-" * 76)
-        print("PERSON FILTER")
+        print("FILTER")
         print("-" * 76)
 
         for name in outcome["people"]:
-            print("  " + name.ljust(30)
+            print("  person  " + name.ljust(30)
                   + str(outcome["person_counts"][name]).rjust(4) + " images")
 
-        if len(outcome["people"]) > 1:
-            print()
-            print("  Together in " + str(outcome["pool_size"]) + " images")
+        for name in outcome["events"]:
+            print("  event   " + name[:30].ljust(30)
+                  + str(outcome["event_counts"][name]).rjust(4) + " images")
 
         print()
         print("  Searching " + str(outcome["pool_size"]) + " of "
               + str(outcome["corpus_size"]) + " images")
-        print()
-        print("  Note: someone whose face was not detected in a photo "
-              "will not")
-        print("  match, so this filter under-reports rather than over-"
-              "reports.")
+
+        if outcome["people"]:
+            print()
+            print("  Note: a face that was not detected will not match, "
+                  "so the person")
+            print("  filter under-reports rather than over-reports.")
 
     img_note = "" if outcome["img_plateau"] else "  (ceiling, no plateau)"
     cap_note = "" if outcome["cap_plateau"] else "  (ceiling, no plateau)"

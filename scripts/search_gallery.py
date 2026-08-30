@@ -3,9 +3,9 @@
 Retrieval logic lives in visualmind.retrieval so this and
 scripts/search_hybrid.py cannot drift apart. This module only renders.
 
-Output pages embed base64 copies of the source photos and, when a person
-filter is used, the names of real people. outputs/ is gitignored and
-blocked by the pre-commit hook.
+Output pages embed base64 copies of the source photos and, when a filter
+is used, the names of real people. outputs/ is gitignored and blocked by
+the pre-commit hook.
 """
 import argparse
 import base64
@@ -17,7 +17,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from visualmind import people, retrieval
+from visualmind import events, people, retrieval
 
 OUTPUT_ROOT = Path("outputs/search")
 THUMBNAIL = (420, 420)
@@ -27,11 +27,12 @@ body { font-family: system-ui, sans-serif; margin: 30px; background: #f4f4f4;
        color: #222; }
 h1 { margin-bottom: 4px; }
 .meta { margin-bottom: 8px; color: #444; font-size: 14px; }
-.people { background: #eef4ff; border-left: 4px solid #2b5fa8;
+.filter { background: #eef4ff; border-left: 4px solid #2b5fa8;
           padding: 12px 16px; margin: 10px 0 18px; font-size: 13px;
           line-height: 1.6; }
-.people strong { display: block; margin-bottom: 4px; }
-.people .caveat { color: #555; margin-top: 8px; }
+.filter strong { display: block; margin-bottom: 4px; }
+.filter .kind { display: inline-block; width: 62px; color: #555; }
+.filter .caveat { color: #555; margin-top: 8px; }
 .basis { display: inline-block; padding: 5px 11px; border-radius: 4px;
          background: #1f6f3f; color: #fff; font-size: 13px;
          margin: 4px 0 24px; }
@@ -82,30 +83,34 @@ def thumbnail_data_uri(path):
     return "data:image/jpeg;base64," + encoded
 
 
-def people_block(outcome):
-    if not outcome["people"]:
+def filter_block(outcome):
+    if not outcome["people"] and not outcome["events"]:
         return ""
 
-    rows = "".join(
-        "<div>" + html.escape(name) + " - "
-        + str(outcome["person_counts"][name]) + " images</div>"
-        for name in outcome["people"]
-    )
+    rows = ""
 
-    together = ""
+    for name in outcome["people"]:
+        rows += ('<div><span class="kind">person</span>'
+                 + html.escape(name) + " - "
+                 + str(outcome["person_counts"][name]) + " images</div>")
 
-    if len(outcome["people"]) > 1:
-        together = ("<div>Together in " + str(outcome["pool_size"])
-                    + " images</div>")
+    for name in outcome["events"]:
+        rows += ('<div><span class="kind">event</span>'
+                 + html.escape(name) + " - "
+                 + str(outcome["event_counts"][name]) + " images</div>")
+
+    caveat = ""
+
+    if outcome["people"]:
+        caveat = ('<div class="caveat">A face that was not detected will '
+                  + "not match, so the person filter under-reports rather "
+                  + "than over-reports.</div>")
 
     return (
-        '<div class="people"><strong>Person filter - searching '
+        '<div class="filter"><strong>Filter - searching '
         + str(outcome["pool_size"]) + " of "
         + str(outcome["corpus_size"]) + " images</strong>"
-        + rows + together
-        + '<div class="caveat">A face that was not detected will not '
-        + "match, so this filter under-reports rather than over-reports."
-        + "</div></div>"
+        + rows + caveat + "</div>"
     )
 
 
@@ -199,9 +204,13 @@ def render(query, outcome, mode, rrf_k):
                 + " &nbsp;|&nbsp; caption cut " + str(outcome["cap_cut"])
                 + cap_note + "</div>")
     else:
-        meta = '<div class="meta">no text query - person filter only</div>'
+        meta = '<div class="meta">no text query - filter only</div>'
 
-    heading = query or "People"
+    heading = query
+
+    if not heading:
+        parts = outcome["people"] + outcome["events"]
+        heading = " / ".join(parts) if parts else "Results"
 
     return (
         '<!DOCTYPE html><html><head><meta charset="utf-8">'
@@ -209,7 +218,7 @@ def render(query, outcome, mode, rrf_k):
         + "<style>" + PAGE_CSS + "</style></head><body>"
         + "<h1>" + html.escape(heading) + "</h1>"
         + meta
-        + people_block(outcome)
+        + filter_block(outcome)
         + '<div class="' + basis_class + '">returning '
         + str(len(outcome["results"])) + " - "
         + html.escape(outcome["basis"]) + "</div>"
@@ -228,17 +237,19 @@ def main():
         action="append",
         default=[],
         metavar="NAME",
-        help=(
-            "Only images containing this person. Repeat for several - "
-            "every named person must be present."
-        ),
+        help="Only images containing this person. Repeat for several.",
     )
     parser.add_argument(
-        "--top-k",
-        type=int,
-        default=0,
-        help="Force a fixed result count. Default 0 derives the count.",
+        "--event",
+        action="append",
+        default=[],
+        metavar="REF",
+        help=(
+            "Only images from this event. Accepts an id, a date prefix, "
+            "or a name. Repeat for several."
+        ),
     )
+    parser.add_argument("--top-k", type=int, default=0)
     parser.add_argument("--rrf-k", type=int, default=retrieval.RRF_K)
     parser.add_argument(
         "--gradient-floor",
@@ -263,8 +274,8 @@ def main():
     )
     args = parser.parse_args()
 
-    if not args.query and not args.person:
-        parser.error("give a query, --person, or both")
+    if not args.query and not args.person and not args.event:
+        parser.error("give a query, --person, --event, or a combination")
 
     try:
         outcome = retrieval.search(
@@ -277,8 +288,10 @@ def main():
             semantic_drop=args.semantic_drop,
             trim=args.trim,
             persons=args.person,
+            event_names=args.event,
         )
-    except (people.AmbiguousName, people.UnknownName) as error:
+    except (people.AmbiguousName, people.UnknownName,
+            events.AmbiguousEvent, events.UnknownEvent) as error:
         print()
         print(str(error))
         print()
@@ -286,13 +299,13 @@ def main():
 
     page = render(args.query, outcome, args.mode, args.rrf_k)
 
-    stem = safe_name(args.query) if args.query else "people"
+    stem = safe_name(args.query) if args.query else "filter"
 
-    if args.person:
-        stem += "--" + "-".join(safe_name(p) for p in args.person)
+    for value in args.person + args.event:
+        stem += "--" + safe_name(value)
 
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
-    output_path = OUTPUT_ROOT / (stem + ".html")
+    output_path = OUTPUT_ROOT / (stem[:120] + ".html")
     output_path.write_text(page, encoding="utf-8")
 
     print()
@@ -303,6 +316,11 @@ def main():
 
     if outcome["people"]:
         print("People:   " + ", ".join(outcome["people"]))
+
+    if outcome["events"]:
+        print("Events:   " + ", ".join(outcome["events"]))
+
+    if outcome["people"] or outcome["events"]:
         print("Pool:     " + str(outcome["pool_size"]) + " of "
               + str(outcome["corpus_size"]) + " images")
 
