@@ -1,11 +1,21 @@
-"""Hybrid search: fuse SigLIP2 image retrieval with BGE caption retrieval.
+"""Hybrid search with a derived result count.
 
-Scores from the two indexes are not comparable (SigLIP sits near 0.10,
-BGE near 0.7), so they are combined with Reciprocal Rank Fusion, which
-uses only ordering.
+Fuses SigLIP2 image retrieval and BGE caption retrieval using Reciprocal
+Rank Fusion, then decides how many results to return rather than always
+returning k.
+
+Two signals drive the cutoff:
+
+  1. Caption term matching. If the query terms appear literally in the
+     captions, those images are ground truth: they set both the count and
+     the result set.
+  2. Score gradient. A present concept produces a steep similarity decay;
+     an absent one produces a plateau of equidistant neighbours. Where the
+     curve flattens, the useful results have ended.
 """
 import argparse
 import csv
+import re
 import sys
 from pathlib import Path
 
@@ -13,11 +23,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import yaml
-from transformers import (
-    AutoModel,
-    AutoProcessor,
-    AutoTokenizer,
-)
+from transformers import AutoModel, AutoProcessor, AutoTokenizer
 
 MODEL_CONFIG = Path("configs/models.yaml")
 INDEX_DIR = Path("indexes")
@@ -28,20 +34,21 @@ CAPTION_EMB = INDEX_DIR / "caption_embeddings.npy"
 CAPTION_LOOKUP = INDEX_DIR / "caption_lookup.csv"
 
 RRF_K = 60
+STOPWORDS = {"a", "an", "the", "of", "in", "on", "at", "with", "and", "or"}
 
 
-def load_config(role: str):
+def load_config(role):
     config = yaml.safe_load(MODEL_CONFIG.read_text(encoding="utf-8"))
     entry = config["models"][role]
     return entry["repo_id"], entry["revision"]
 
 
-def read_lookup(path: Path) -> list[dict]:
+def read_lookup(path):
     with path.open("r", encoding="utf-8", newline="") as handle:
         return list(csv.DictReader(handle))
 
 
-def image_scores(query: str) -> tuple[np.ndarray, list[dict]]:
+def image_scores(query):
     repo, revision = load_config("image_embedding")
 
     processor = AutoProcessor.from_pretrained(repo, revision=revision)
@@ -58,7 +65,6 @@ def image_scores(query: str) -> tuple[np.ndarray, list[dict]]:
 
     features = getattr(result, "pooler_output", result)
     features = F.normalize(features.float(), p=2, dim=-1)
-
     vector = features.cpu().numpy()[0]
 
     del model
@@ -67,14 +73,15 @@ def image_scores(query: str) -> tuple[np.ndarray, list[dict]]:
     return np.load(IMAGE_EMB) @ vector, read_lookup(IMAGE_LOOKUP)
 
 
-def caption_scores(query: str) -> tuple[np.ndarray, list[dict]]:
+def caption_scores(query):
     repo, revision = load_config("text_embedding")
 
     tokenizer = AutoTokenizer.from_pretrained(repo, revision=revision)
     model = AutoModel.from_pretrained(repo, revision=revision).eval().cuda()
 
-    # BGE recommends an instruction prefix on the query side only.
-    prefixed = f"Represent this sentence for searching relevant passages: {query}"
+    prefixed = (
+        "Represent this sentence for searching relevant passages: " + query
+    )
 
     inputs = tokenizer(
         [prefixed],
@@ -89,7 +96,6 @@ def caption_scores(query: str) -> tuple[np.ndarray, list[dict]]:
 
     pooled = output.last_hidden_state[:, 0]
     pooled = F.normalize(pooled.float(), p=2, dim=-1)
-
     vector = pooled.cpu().numpy()[0]
 
     del model
@@ -98,18 +104,65 @@ def caption_scores(query: str) -> tuple[np.ndarray, list[dict]]:
     return np.load(CAPTION_EMB) @ vector, read_lookup(CAPTION_LOOKUP)
 
 
-def rrf(ranked_paths: list[str], k: int) -> dict[str, float]:
+def literal_matches(query, lookup):
+    """Paths whose caption contains every content word of the query."""
+    terms = [
+        term for term in re.findall(r"[a-z]+", query.lower())
+        if term not in STOPWORDS
+    ]
+
+    if not terms:
+        return set()
+
+    matched = set()
+
+    for row in lookup:
+        caption = row["caption"].lower()
+
+        if all(re.search(r"\b" + term + r"s?\b", caption) for term in terms):
+            matched.add(row["source_path"])
+
+    return matched
+
+
+def gradient_cutoff(scores, floor=0.35, max_results=40):
+    """How many leading results sit on the steep part of the decay."""
+    ordered = np.sort(scores)[::-1][:max_results]
+
+    if len(ordered) < 3:
+        return len(ordered)
+
+    drops = ordered[:-1] - ordered[1:]
+    first = drops[0]
+
+    if first <= 0:
+        return len(ordered)
+
+    for index, drop in enumerate(drops, start=1):
+        if drop < first * floor:
+            return index
+
+    return len(ordered)
+
+
+def rrf(paths, k):
     return {
         path: 1.0 / (k + rank)
-        for rank, path in enumerate(ranked_paths, start=1)
+        for rank, path in enumerate(paths, start=1)
     }
 
 
-def main() -> int:
+def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("query")
-    parser.add_argument("--top-k", type=int, default=12)
+    parser.add_argument(
+        "--top-k",
+        type=int,
+        default=0,
+        help="Force a fixed result count. Default 0 derives the count.",
+    )
     parser.add_argument("--rrf-k", type=int, default=RRF_K)
+    parser.add_argument("--gradient-floor", type=float, default=0.35)
     parser.add_argument(
         "--mode",
         choices=["hybrid", "image", "caption"],
@@ -122,7 +175,7 @@ def main() -> int:
 
     print()
     print("=" * 76)
-    print(f"HYBRID SEARCH - {args.query}")
+    print("HYBRID SEARCH - " + args.query)
     print("=" * 76)
 
     img_s, img_lookup = image_scores(args.query)
@@ -147,24 +200,59 @@ def main() -> int:
             for path in set(img_rrf) | set(cap_rrf)
         }
 
+    ordered = sorted(fused.items(), key=lambda kv: kv[1], reverse=True)
+
+    exact = literal_matches(args.query, cap_lookup)
+    img_cut = gradient_cutoff(img_s, args.gradient_floor)
+    cap_cut = gradient_cutoff(cap_s, args.gradient_floor)
+
+    if args.top_k:
+        results = ordered[:args.top_k]
+        basis = "fixed (--top-k)"
+    elif exact:
+        # Caption matches are ground truth: they define the result set,
+        # not merely its size. Rank them among themselves by fused score.
+        results = [item for item in ordered if item[0] in exact]
+        basis = "caption term match"
+    else:
+        results = ordered[:max(img_cut, cap_cut)]
+        basis = "score gradient"
+
+    print()
+    print("-" * 76)
+    print("RESULT COUNT")
+    print("-" * 76)
+    print("Caption term matches: " + str(len(exact)))
+    print("Image gradient cut:   " + str(img_cut))
+    print("Caption gradient cut: " + str(cap_cut))
+    print("Returning:            " + str(len(results)) + "  (" + basis + ")")
+
+    if not exact and max(img_cut, cap_cut) <= 2:
+        print()
+        print("NOTE: no caption mentions this concept and both score curves")
+        print("      are flat. This query may have no matches in the corpus.")
+
     by_path = {r["source_path"]: r for r in cap_lookup}
     img_rank = {p: i for i, p in enumerate(img_paths, start=1)}
     cap_rank = {p: i for i, p in enumerate(cap_paths, start=1)}
 
-    ordered = sorted(fused.items(), key=lambda kv: kv[1], reverse=True)
+    print()
 
-    print(f"\nMode: {args.mode}   RRF k={args.rrf_k}\n")
-
-    for rank, (path, score) in enumerate(ordered[:args.top_k], start=1):
+    for rank, (path, score) in enumerate(results, start=1):
         row = by_path.get(path, {})
         name = row.get("filename", Path(path).name)
         caption = row.get("caption", "")
+        mark = "*" if path in exact else " "
 
-        print(f"#{rank:<3} {name}")
-        print(f"     rrf={score:.5f}  "
-              f"image_rank={img_rank.get(path, '-'):<4} "
-              f"caption_rank={cap_rank.get(path, '-')}")
-        print(f"     {caption[:150]}")
+        print("#" + str(rank) + mark + "  " + name)
+        print("     rrf=" + format(score, ".5f")
+              + "  image_rank=" + str(img_rank.get(path, "-"))
+              + "  caption_rank=" + str(cap_rank.get(path, "-")))
+        print("     " + caption[:150])
+        print()
+
+    if exact:
+        print("* = query terms appear literally in the caption")
         print()
 
     return 0
