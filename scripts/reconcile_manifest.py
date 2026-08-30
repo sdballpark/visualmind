@@ -45,9 +45,8 @@ def write_csv(path: Path, rows: list[dict], fieldnames: list[str]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--source",
+        "source",
         type=Path,
-        required=True,
         help="Path to gmail-family-photo-downloader output directory.",
     )
     args = parser.parse_args()
@@ -88,6 +87,8 @@ def main() -> None:
     matched_paths = file_paths & manifest_paths
     files_without_manifest = file_paths - manifest_paths
     manifest_without_file = manifest_paths - file_paths
+
+    matched_hashes: set[str] = set()
 
     duplicate_manifest_paths = {
         path: rows
@@ -151,6 +152,7 @@ def main() -> None:
                 continue
 
             if digest.lower() in manifest_hashes:
+                matched_hashes.add(digest.lower())
                 status = "HASH_EXISTS_IN_MANIFEST"
                 detail = (
                     "Content is already represented by a manifest SHA-256 "
@@ -178,8 +180,14 @@ def main() -> None:
 
     missing_file_rows: list[dict[str, str]] = []
 
+    # A manifest row whose content was found under a different path is not
+    # missing. Path-only comparison cannot see this (e.g. C:\ vs /mnt/c).
+
     for normalized in sorted(manifest_without_file):
         for row in manifest_by_path[normalized]:
+            if row.get("sha256", "").strip().lower() in matched_hashes:
+                continue
+
             missing_file_rows.append(
                 {
                     "downloaded_path": row.get("downloaded_path", ""),
