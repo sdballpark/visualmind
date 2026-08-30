@@ -5,11 +5,16 @@ recognition embeddings. Detection and embedding happen here; clustering
 is a separate step so it can be re-run with different parameters without
 redoing this pass.
 
-Writes indexes/face_embeddings.npy and indexes/face_lookup.csv. Both are
-biometric data for identifiable people. They are gitignored and blocked
-by the pre-commit hook.
+Writes indexes/face_embeddings.npy, indexes/face_lookup.csv, and
+indexes/face_scanned.csv. The last records every image the scan looked
+at, including the ones with no faces - without it, "no faces found" and
+"never scanned" are indistinguishable, and a staleness check cannot tell
+a complete index from a partial one.
 
-Resumable: images already processed are skipped.
+Face data is biometric and identifies real people. All three files are
+gitignored and blocked by the pre-commit hook.
+
+Resumable: images already scanned are skipped.
 """
 import argparse
 import csv
@@ -24,6 +29,7 @@ CATALOG = Path("data/metadata/image_catalog.csv")
 INDEX_DIR = Path("indexes")
 EMBEDDINGS_PATH = INDEX_DIR / "face_embeddings.npy"
 LOOKUP_PATH = INDEX_DIR / "face_lookup.csv"
+SCANNED_PATH = INDEX_DIR / "face_scanned.csv"
 
 MIN_DET_SCORE = 0.60
 MIN_FACE_PIXELS = 40
@@ -34,8 +40,13 @@ FIELDNAMES = [
     "det_score", "sex", "age",
 ]
 
+SCANNED_FIELDNAMES = ["source_path", "filename", "faces", "status"]
+
 
 def read_csv(path):
+    if not path.exists():
+        return []
+
     with path.open("r", encoding="utf-8", newline="") as handle:
         return list(csv.DictReader(handle))
 
@@ -52,13 +63,17 @@ def main():
 
     rows = read_csv(CATALOG)
 
-    done = set()
-    existing_rows = []
+    existing_rows = read_csv(LOOKUP_PATH)
+    scanned_rows = read_csv(SCANNED_PATH)
+
     existing_vectors = None
 
-    if LOOKUP_PATH.exists() and EMBEDDINGS_PATH.exists():
-        existing_rows = read_csv(LOOKUP_PATH)
+    if existing_rows and EMBEDDINGS_PATH.exists():
         existing_vectors = np.load(EMBEDDINGS_PATH)
+
+    done = {r["source_path"] for r in scanned_rows}
+
+    if not scanned_rows and existing_rows:
         done = {r["source_path"] for r in existing_rows}
 
     todo = [r for r in rows if r["source_path"] not in done]
@@ -86,6 +101,8 @@ def main():
 
     new_rows = []
     new_vectors = []
+    new_scanned = []
+
     next_id = len(existing_rows)
 
     unreadable = 0
@@ -98,7 +115,15 @@ def main():
 
         if image is None:
             unreadable += 1
+            new_scanned.append({
+                "source_path": path,
+                "filename": row["filename"],
+                "faces": "0",
+                "status": "unreadable",
+            })
             continue
+
+        found = 0
 
         for face in app.get(image):
             if face.det_score < args.min_score:
@@ -135,6 +160,14 @@ def main():
             })
 
             next_id += 1
+            found += 1
+
+        new_scanned.append({
+            "source_path": path,
+            "filename": row["filename"],
+            "faces": str(found),
+            "status": "ok",
+        })
 
         if number % 50 == 0 or number == len(todo):
             rate = (time.time() - started) / number
@@ -144,24 +177,34 @@ def main():
                   + "  " + format(rate, ".2f") + "s/image"
                   + "  ~" + format(left / 60, ".0f") + " min left")
 
-    if not new_rows:
-        print("\nNo faces found in the new images.")
-        return 0
-
-    matrix = np.vstack(new_vectors).astype(np.float32)
-
-    if existing_vectors is not None:
-        matrix = np.vstack([existing_vectors, matrix])
-
-    all_rows = existing_rows + new_rows
-
     INDEX_DIR.mkdir(parents=True, exist_ok=True)
-    np.save(EMBEDDINGS_PATH, matrix)
 
-    with LOOKUP_PATH.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=FIELDNAMES)
+    all_scanned = scanned_rows + new_scanned
+
+    with SCANNED_PATH.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=SCANNED_FIELDNAMES)
         writer.writeheader()
-        writer.writerows(all_rows)
+        writer.writerows(all_scanned)
+
+    if new_rows:
+        matrix = np.vstack(new_vectors).astype(np.float32)
+
+        if existing_vectors is not None:
+            matrix = np.vstack([existing_vectors, matrix])
+
+        all_rows = existing_rows + new_rows
+
+        np.save(EMBEDDINGS_PATH, matrix)
+
+        with LOOKUP_PATH.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=FIELDNAMES)
+            writer.writeheader()
+            writer.writerows(all_rows)
+
+        shape = str(matrix.shape)
+    else:
+        all_rows = existing_rows
+        shape = "unchanged"
 
     with_faces = len({r["source_path"] for r in all_rows})
     elapsed = time.time() - started
@@ -172,14 +215,18 @@ def main():
     print("-" * 76)
     print("Faces this run:      " + str(len(new_rows)))
     print("Faces total:         " + str(len(all_rows)))
-    print("Images with faces:   " + str(with_faces) + " of " + str(len(rows)))
+    print("Images scanned:      " + str(len(all_scanned)) + " of "
+          + str(len(rows)))
+    print("Images with faces:   " + str(with_faces))
+    print("Images with none:    " + str(len(all_scanned) - with_faces))
     print("Rejected (low score or too small): " + str(rejected))
     print("Unreadable images:   " + str(unreadable))
-    print("Embedding matrix:    " + str(matrix.shape))
+    print("Embedding matrix:    " + shape)
     print("Elapsed:             " + format(elapsed / 60, ".1f") + " min")
     print()
-    print("Embeddings: " + str(EMBEDDINGS_PATH.resolve()))
-    print("Lookup:     " + str(LOOKUP_PATH.resolve()))
+    print("Embeddings:  " + str(EMBEDDINGS_PATH.resolve()))
+    print("Lookup:      " + str(LOOKUP_PATH.resolve()))
+    print("Scan record: " + str(SCANNED_PATH.resolve()))
     print()
     print("Biometric data. Gitignored and blocked by the pre-commit hook.")
     print()
