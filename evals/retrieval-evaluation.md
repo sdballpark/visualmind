@@ -81,7 +81,7 @@ nouns did not survive testing:
 
 Rejected. The variation was sample noise over small result sets.
 
-## Finding 5 - captions add recall; hybrid fusion adds little on easy queries
+## Finding 5 - captions add recall
 
 Qwen3-VL-4B captioned all 441 images in 23 minutes (3.2s per image, 9.14 GB
 peak VRAM with max_pixels capped at 802,816 - the corpus contains 45 MP
@@ -92,14 +92,51 @@ clothing, background objects, counts of people. They also convert fuzzy
 ranking into exact matching, which is what made the ground-truth counts in
 Finding 2 possible.
 
-Hybrid search fuses SigLIP2 and BGE caption rankings with Reciprocal Rank
-Fusion (k=60), since the two score scales are not comparable - SigLIP sits
-near 0.10, BGE near 0.7.
+Caption retrieval also recovers images the visual index buries. For "cat",
+the stone-statue photo sat at image rank 388 of 441 and caption rank 3.
 
-On "christmas tree", hybrid and caption-only produced near-identical top-6
-results. Fusion did not improve a query where both indexes already agree.
-Its value is expected to be in disagreement cases, which need a larger query
-set to evaluate properly.
+Hybrid search fuses the two rankings with Reciprocal Rank Fusion (k=60),
+since the score scales are not comparable - SigLIP sits near 0.10, BGE near
+0.7.
+
+## Finding 6 - a derived result count outperforms a fixed one
+
+Rather than always returning k results, the search derives how many to
+return from two signals:
+
+1. Caption term matching. If every content word of the query appears in a
+   caption, those images are ground truth - they set both the count and the
+   result set.
+2. Score gradient. Where the similarity curve flattens, useful results have
+   ended.
+
+Measured over eight queries:
+
+| Query                      | Basis          | Returned | Correct |
+|----------------------------|----------------|----------|---------|
+| "dog"                      | caption match  | 20       | 20      |
+| "christmas tree"           | caption match  | 4        | 4       |
+| "beach"                    | caption match  | 20       | 20      |
+| "birthday cake"            | caption match  | 16       | 16      |
+| "wedding"                  | caption match  | 11       | 11      |
+| "swimming pool"            | caption match  | 6        | 6       |
+| "people wearing sunglasses"| caption match  | 10       | 10      |
+| "a red car"                | caption match  | 3        | 3       |
+| "someone holding a baby"   | score gradient | 40       | partial |
+
+The seven caption-matched queries returned 90 images with no false
+positives. Compare the same corpus under fixed top-12: "dog" returned 10
+correct of 12, missing 10 dogs that exist.
+
+The two paths are not equivalent. Caption matching is exact. The gradient
+path degrades: "someone holding a baby" found no literal match (the
+stopword list does not cover "someone", and matching requires every content
+word), fell through to the gradient, and hit its 40-result ceiling rather
+than detecting a plateau. Results were relevant at the top and drifted to
+adjacent concepts by rank 38 - babies present rather than babies held.
+
+So the gradient path currently signals "no confident cutoff" by returning
+its maximum, which reads like an answer but is not one.
 
 ## Note on SigLIP score scale
 
@@ -109,17 +146,22 @@ typical of CLIP. A score of 0.10 here is a strong match, not a weak one.
 
 ## Implications
 
-- Result count should be derived, not fixed. Caption matching can supply an
-  honest count; the UI should return that many results, not always k.
+- Deriving the result count is the single largest accuracy improvement made:
+  100% precision on caption-matched queries against 83% on a fixed top-12,
+  with double the recall.
 - A bigger embedding model is not the fix for small-object retrieval - that
   was tested and regressed.
-- Confidence should come from score spread or gradient, not a fixed floor.
 - Captions introduce a new failure mode: depicted-vs-present objects (the
   cat statue, a cat graphic on a shirt) match textually but are not what the
-  user means.
+  user means. Qwen sometimes flags this unprompted, appending "no animals
+  are visible besides the statue" - a signal that could be exploited.
+- The gradient ceiling needs to report low confidence rather than return 40
+  results.
 
 ## Not yet tested
 
 - Whether the resolution gap holds on the post-2015 subset
 - Hybrid fusion on queries where the two indexes disagree
+- Partial caption matching (any content word rather than all) for queries
+  like "someone holding a baby"
 - Weighting fusion by query type rather than fusing equally
