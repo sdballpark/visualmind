@@ -43,3 +43,8 @@ logs/
 .vscode/
 .idea/
 .DS_Store
+
+# Derived indexes and metadata (regenerable, may contain private data)
+indexes/
+data/metadata/
+outputs/
