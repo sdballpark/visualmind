@@ -290,6 +290,11 @@ def main():
             persons=args.person,
             event_names=args.event,
         )
+    except retrieval.IndexMismatch as error:
+        print()
+        print(str(error))
+        print()
+        return 1
     except (people.AmbiguousName, people.UnknownName,
             events.AmbiguousEvent, events.UnknownEvent) as error:
         print()

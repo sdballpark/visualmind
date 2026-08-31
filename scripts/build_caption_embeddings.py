@@ -4,7 +4,10 @@ Reads data/metadata/captions.csv, writes indexes/caption_embeddings.npy
 and indexes/caption_lookup.csv.
 """
 import csv
+import hashlib
+import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -13,13 +16,26 @@ import torch.nn.functional as F
 import yaml
 from transformers import AutoModel, AutoTokenizer
 
+from visualmind.retrieval import lookup_fingerprint
+
 CAPTIONS = Path("data/metadata/captions.csv")
 MODEL_CONFIG = Path("configs/models.yaml")
 INDEX_DIR = Path("indexes")
 EMBEDDINGS_PATH = INDEX_DIR / "caption_embeddings.npy"
 LOOKUP_PATH = INDEX_DIR / "caption_lookup.csv"
+INDEX_INFO_PATH = INDEX_DIR / "caption_index.json"
 
 BATCH_SIZE = 32
+
+
+def sha256_file(path):
+    digest = hashlib.sha256()
+
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+
+    return digest.hexdigest()
 
 
 def load_model_config():
@@ -97,6 +113,30 @@ def main() -> int:
 
     norms = np.linalg.norm(matrix, axis=1)
 
+    index_info = {
+        "created_utc": datetime.now(timezone.utc).isoformat(),
+        "model_id": repo,
+        "revision": revision,
+        "captions": str(CAPTIONS),
+        "captions_sha256": sha256_file(CAPTIONS),
+        "caption_count": int(matrix.shape[0]),
+        "embedding_dimension": int(matrix.shape[1]),
+        "dtype": str(matrix.dtype),
+        "minimum_l2_norm": float(norms.min()),
+        "maximum_l2_norm": float(norms.max()),
+
+        # Binds this matrix to the exact lookup row order written
+        # above. retrieval.py refuses the pair if they diverge.
+        "lookup_fingerprint": lookup_fingerprint(
+            row["source_path"] for row in rows
+        ),
+    }
+
+    INDEX_INFO_PATH.write_text(
+        json.dumps(index_info, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
     print()
     print("-" * 76)
     print("CAPTION INDEX SUMMARY")
@@ -108,6 +148,7 @@ def main() -> int:
     print(f"GPU peak memory:    {torch.cuda.max_memory_allocated()/1e9:.2f} GB")
     print(f"\nEmbeddings: {EMBEDDINGS_PATH.resolve()}")
     print(f"Lookup:     {LOOKUP_PATH.resolve()}")
+    print(f"Manifest:   {INDEX_INFO_PATH.resolve()}")
     print()
     print("=" * 76)
     print("CAPTION INDEX COMPLETE")

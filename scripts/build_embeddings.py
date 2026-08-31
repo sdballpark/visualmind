@@ -14,6 +14,8 @@ from PIL import Image, ImageOps
 from pillow_heif import register_heif_opener
 from transformers import AutoModel, AutoProcessor
 
+from visualmind.retrieval import lookup_fingerprint
+
 
 register_heif_opener()
 
@@ -250,6 +252,13 @@ def main():
 
         "image_count":
             int(embedding_matrix.shape[0]),
+
+        # Binds this matrix to the exact lookup row order written
+        # below. retrieval.py refuses the pair if they diverge.
+        "lookup_fingerprint":
+            lookup_fingerprint(
+                row["source_path"] for row in rows
+            ),
 
         "embedding_dimension":
             int(embedding_matrix.shape[1]),

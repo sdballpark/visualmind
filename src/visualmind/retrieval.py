@@ -26,6 +26,10 @@ which words are names fails in ways that are hard to explain.
 A filter with no text query returns the whole filtered pool in catalog
 order, rather than an order manufactured from an empty embedding.
 
+An embedding matrix and its lookup are matched by row position and
+nothing else, so both are verified against a manifest fingerprint before
+a query runs. See verify_index.
+
 Every ordering breaks ties on source path. Equal scores are common -
 RRF sums collide whenever two images hold each other's ranks in the two
 modalities - and the sets and dicts they arrive in do not iterate in a
@@ -37,6 +41,8 @@ available behind the `trim` flag but is off by default. See
 evals/retrieval-evaluation.md.
 """
 import csv
+import hashlib
+import json
 import re
 from pathlib import Path
 
@@ -54,8 +60,15 @@ INDEX_DIR = Path("indexes")
 
 IMAGE_EMB = INDEX_DIR / "siglip2_image_embeddings.npy"
 IMAGE_LOOKUP = INDEX_DIR / "siglip2_lookup.csv"
+IMAGE_MANIFEST = INDEX_DIR / "siglip2_index.json"
 CAPTION_EMB = INDEX_DIR / "caption_embeddings.npy"
 CAPTION_LOOKUP = INDEX_DIR / "caption_lookup.csv"
+CAPTION_MANIFEST = INDEX_DIR / "caption_index.json"
+
+REBUILD = {
+    "image": "scripts/build_embeddings.py",
+    "caption": "scripts/build_caption_embeddings.py",
+}
 
 RRF_K = 60
 MIN_PARTIAL_TERMS = 2
@@ -82,7 +95,82 @@ def read_lookup(path):
         return list(csv.DictReader(handle))
 
 
+class IndexMismatch(RuntimeError):
+    """An embedding matrix and its lookup no longer correspond."""
+
+
+def lookup_fingerprint(paths):
+    """Hash an ordered sequence of source paths.
+
+    Row order is the only thing binding a lookup CSV to its embedding
+    matrix, since scores are matched to rows by position. A rebuild that
+    reorders the rows without changing their number is invisible to a
+    count check and silently attaches every score to the wrong image, so
+    the order itself is what gets fingerprinted.
+
+    Both the builders and this module call it, so a drifting second
+    implementation cannot raise false mismatches.
+    """
+    digest = hashlib.sha256()
+
+    for path in paths:
+        digest.update(path.encode("utf-8"))
+        digest.update(b"\n")
+
+    return digest.hexdigest()
+
+
+def verify_index(matrix, rows, manifest_path, label):
+    """Refuse an embedding matrix that no longer matches its lookup."""
+    rebuild = "Rebuild with " + REBUILD[label] + "."
+
+    if matrix.shape[0] != len(rows):
+        raise IndexMismatch(
+            label + " index: " + str(matrix.shape[0]) + " embedding rows "
+            "against " + str(len(rows)) + " lookup rows. " + rebuild
+        )
+
+    if not manifest_path.exists():
+        raise IndexMismatch(
+            label + " index: " + str(manifest_path) + " is missing, so the "
+            "embeddings cannot be checked against the lookup. " + rebuild
+        )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    expected = manifest.get("lookup_fingerprint")
+
+    if not expected:
+        raise IndexMismatch(
+            label + " index: " + str(manifest_path) + " predates lookup "
+            "fingerprinting, so the embeddings cannot be checked against "
+            "the lookup. " + rebuild
+        )
+
+    actual = lookup_fingerprint(row["source_path"] for row in rows)
+
+    if actual != expected:
+        raise IndexMismatch(
+            label + " index: the lookup has been rebuilt since the "
+            "embeddings were. Rows were added, removed, or reordered, so "
+            "every score would be read against the wrong image. " + rebuild
+        )
+
+
+def load_index(embeddings_path, lookup_path, manifest_path, label):
+    """Load an embedding matrix and its verified lookup."""
+    matrix = np.load(embeddings_path)
+    rows = read_lookup(lookup_path)
+
+    verify_index(matrix, rows, manifest_path, label)
+
+    return matrix, rows
+
+
 def image_scores(query):
+    matrix, rows = load_index(
+        IMAGE_EMB, IMAGE_LOOKUP, IMAGE_MANIFEST, "image"
+    )
+
     repo, revision = load_config("image_embedding")
 
     processor = AutoProcessor.from_pretrained(repo, revision=revision)
@@ -104,10 +192,14 @@ def image_scores(query):
     del model
     torch.cuda.empty_cache()
 
-    return np.load(IMAGE_EMB) @ vector, read_lookup(IMAGE_LOOKUP)
+    return matrix @ vector, rows
 
 
 def caption_scores(query):
+    matrix, rows = load_index(
+        CAPTION_EMB, CAPTION_LOOKUP, CAPTION_MANIFEST, "caption"
+    )
+
     repo, revision = load_config("text_embedding")
 
     tokenizer = AutoTokenizer.from_pretrained(repo, revision=revision)
@@ -135,7 +227,7 @@ def caption_scores(query):
     del model
     torch.cuda.empty_cache()
 
-    return np.load(CAPTION_EMB) @ vector, read_lookup(CAPTION_LOOKUP)
+    return matrix @ vector, rows
 
 
 def content_terms(query):
