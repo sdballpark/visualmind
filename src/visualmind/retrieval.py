@@ -4,9 +4,12 @@ Both scripts/search_hybrid.py (console) and scripts/search_gallery.py
 (HTML) import from here so their behaviour cannot drift apart.
 
 Term matching decides which images are candidates; the caption semantic
-score decides their order. Term matching has no notion of subject and
-object - "holding" and "baby" both appear in a caption describing a baby
-holding a ladle - so it bounds the candidate set rather than ranking it.
+score decides their order. Terms and caption tokens are folded the same
+way - alphanumeric split, then a conservative singular fold - so the
+comparison is symmetric in both number and direction. Term matching has
+no notion of subject and object - "holding" and "baby" both appear in a
+caption describing a baby holding a ladle - so it bounds the candidate
+set rather than ranking it.
 
 `mode` selects the score that orders a matched set: caption score under
 "hybrid" and "caption", image score under "image". Hybrid deliberately
@@ -247,11 +250,60 @@ def caption_scores(query):
     return matrix @ vector, rows
 
 
+TOKEN = re.compile(r"[^\W_]+")
+
+
+def tokens(text):
+    """Split text into alphanumeric tokens.
+
+    `[a-z]+` dropped digits and non-ASCII letters, so "4th" became the
+    junk term "th" and "cafe\u0301" became "caf" - which then failed to
+    match its own caption, because a word boundary does not sit between
+    "caf" and an accented vowel.
+    """
+    return TOKEN.findall(text.lower())
+
+
+def singular(token):
+    """Fold a token towards its singular form.
+
+    Applied to query terms and caption tokens alike, so a fold that is
+    wrong in isolation still matches: "christmas" becomes "christma" on
+    both sides. Only a fold that collapses two genuinely different words
+    costs anything, which is why the rules stay conservative.
+
+    Matching was previously singular-only - the pattern appended an
+    optional "s" to the query term - so "cat" found "cats" but "cats"
+    never found "cat".
+    """
+    if len(token) > 3 and token.endswith("ies"):
+        return token[:-3] + "y"
+
+    if len(token) > 3 and token.endswith("es") and token[-3] in "sxzh":
+        return token[:-2]
+
+    if len(token) > 2 and token.endswith("s") and not token.endswith("ss"):
+        return token[:-1]
+
+    return token
+
+
 def content_terms(query):
+    """The query tokens that carry meaning, folded for comparison.
+
+    Stopwords are checked before and after folding, so both "photos"
+    and "was" are dropped - the first only matches a stopword once
+    folded, the second only before.
+    """
     return [
-        term for term in re.findall(r"[a-z]+", query.lower())
-        if term not in STOPWORDS
+        singular(token) for token in tokens(query)
+        if token not in STOPWORDS and singular(token) not in STOPWORDS
     ]
+
+
+def caption_terms(caption):
+    """The folded token set of one caption."""
+    return {singular(token) for token in tokens(caption)}
 
 
 def term_hits(query, lookup, allowed=None):
@@ -267,12 +319,8 @@ def term_hits(query, lookup, allowed=None):
         if allowed is not None and row["source_path"] not in allowed:
             continue
 
-        caption = row["caption"].lower()
-
-        count = sum(
-            1 for term in terms
-            if re.search(r"\b" + term + r"s?\b", caption)
-        )
+        present = caption_terms(row["caption"])
+        count = sum(1 for term in terms if term in present)
 
         if count:
             hits[row["source_path"]] = count
