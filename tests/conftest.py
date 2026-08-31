@@ -5,6 +5,7 @@ All of that sits behind four seams - image_scores, caption_scores,
 torch.cuda.is_available, and the two filter_paths - so the fusion logic
 can be exercised with synthetic scores and no GPU.
 """
+import csv
 from pathlib import Path
 
 import numpy as np
@@ -19,7 +20,7 @@ FLAT_CAPTION = "a plain wall"
 
 
 @pytest.fixture
-def fake_corpus(monkeypatch):
+def fake_corpus(monkeypatch, tmp_path):
     """Install a synthetic corpus, returning the score maps search() sees.
 
     `paths` fixes the corpus row order; `image` and `caption` give each
@@ -51,6 +52,20 @@ def fake_corpus(monkeypatch):
             retrieval, "caption_scores", lambda query: (caption_vector, lookup)
         )
         monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+
+        # An empty query bypasses both score functions and reads the
+        # caption lookup straight off disk, so that path needs a file
+        # of its own or the suite stops being hermetic.
+        lookup_csv = tmp_path / "caption_lookup.csv"
+
+        with lookup_csv.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(
+                handle, fieldnames=["source_path", "filename", "caption"]
+            )
+            writer.writeheader()
+            writer.writerows(lookup)
+
+        monkeypatch.setattr(retrieval, "CAPTION_LOOKUP", lookup_csv)
 
         if allowed is not None:
             pool = set(allowed)

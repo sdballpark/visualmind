@@ -175,3 +175,88 @@ def test_tied_matched_set_breaks_by_path(fake_corpus):
 
     assert outcome["basis"].startswith("full caption match")
     assert order(outcome) == sorted(EQUAL)
+
+
+# --- score_kind: which scale results[i][1] is on -----------------------
+#
+# The three scales are an order of magnitude apart and nothing in the
+# value distinguishes them, so the branch that produced a result has to
+# say. In a matched set the kind follows --mode, because match_score is
+# mode-selected.
+
+
+def test_full_match_in_hybrid_reports_a_caption_cosine(fake_corpus):
+    fake_corpus(
+        MATCHED_CORPUS,
+        image=MATCHED_IMAGE,
+        caption=MATCHED_CAPTION,
+        captions=MATCHED_CAPTIONS,
+    )
+
+    outcome = retrieval.search("zebra")
+
+    assert outcome["basis"].startswith("full caption match")
+    assert outcome["score_kind"] == retrieval.SCORE_CAPTION
+    assert dict(outcome["results"])["m1"] == MATCHED_CAPTION["m1"]
+
+
+def test_full_match_under_image_mode_reports_an_image_cosine(fake_corpus):
+    """The same branch and the same corpus, a different scale.
+
+    Nothing but score_kind separates these two outcomes, which is the
+    reason it exists.
+    """
+    fake_corpus(
+        MATCHED_CORPUS,
+        image=MATCHED_IMAGE,
+        caption=MATCHED_CAPTION,
+        captions=MATCHED_CAPTIONS,
+    )
+
+    outcome = retrieval.search("zebra", mode="image")
+
+    assert outcome["basis"].startswith("full caption match")
+    assert outcome["score_kind"] == retrieval.SCORE_IMAGE
+    assert dict(outcome["results"])["m1"] == MATCHED_IMAGE["m1"]
+
+
+def test_top_k_reports_a_fused_sum(fake_corpus):
+    fake_corpus(
+        MATCHED_CORPUS,
+        image=MATCHED_IMAGE,
+        caption=MATCHED_CAPTION,
+        captions=MATCHED_CAPTIONS,
+    )
+
+    outcome = retrieval.search("zebra", top_k=3)
+
+    assert outcome["basis"].startswith("fixed count")
+    assert outcome["score_kind"] == retrieval.SCORE_FUSED
+
+    # An RRF sum of two 1/(60+rank) terms cannot reach a cosine's range.
+    assert all(score < 0.05 for _, score in outcome["results"])
+
+
+def test_gradient_fallback_reports_a_fused_sum(fake_corpus):
+    fake_corpus(CORPUS, image={**DECLINE, **BEYOND},
+                caption={**PLATEAU, **BEYOND})
+
+    outcome = retrieval.search("zebra")
+
+    assert outcome["basis"].startswith("score gradient")
+    assert outcome["score_kind"] == retrieval.SCORE_FUSED
+
+
+def test_filter_only_query_reports_no_scale(fake_corpus):
+    """Beyond the four branches above: empty_result's placeholder zeros.
+
+    They are not a measurement, so naming them one would be worse than
+    saying nothing.
+    """
+    fake_corpus(CORPUS, image={**DECLINE, **BEYOND},
+                caption={**PLATEAU, **BEYOND}, allowed=POOL)
+
+    outcome = retrieval.search("", persons=["Ada Fixture"])
+
+    assert outcome["score_kind"] == retrieval.SCORE_NONE
+    assert all(score == 0.0 for _, score in outcome["results"])

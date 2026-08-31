@@ -214,6 +214,7 @@ def main():
     print("Caption gradient cut: " + str(outcome["cap_cut"]) + cap_note)
     print("Returning:            " + str(len(outcome["results"]))
           + "  (" + outcome["basis"] + ")")
+    print("Score scale:          " + outcome["score_kind"])
 
     if outcome["low_confidence"]:
         print()
@@ -237,8 +238,17 @@ def main():
             mark = "  "
 
         print("#" + str(rank) + mark + "  " + name)
-        print("     score=" + format(score, ".5f")
-              + "  image_rank=" + str(outcome["image_rank"].get(path, "-"))
+
+        # The scale differs by branch, so the number is labelled with
+        # the kind that produced it rather than a bare "score".
+        if outcome["score_kind"] == retrieval.SCORE_NONE:
+            measure = "     "
+        else:
+            measure = ("     " + outcome["score_kind"] + "="
+                       + format(score, ".5f") + "  ")
+
+        print(measure
+              + "image_rank=" + str(outcome["image_rank"].get(path, "-"))
               + "  caption_rank="
               + str(outcome["caption_rank"].get(path, "-")))
 

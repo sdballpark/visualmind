@@ -137,7 +137,8 @@ def render(query, outcome, mode, rrf_k):
                      + " / " + str(outcome["total_terms"]) + " terms</div>")
 
         if scored:
-            ranks = ('<div class="ranks">score ' + format(score, ".5f")
+            ranks = ('<div class="ranks">' + outcome["score_kind"] + " "
+                     + format(score, ".5f")
                      + " &nbsp;|&nbsp; image #" + str(img_rank.get(path, "-"))
                      + " &nbsp;|&nbsp; caption #"
                      + str(cap_rank.get(path, "-")) + "</div>")

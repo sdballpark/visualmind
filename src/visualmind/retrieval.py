@@ -26,6 +26,12 @@ which words are names fails in ways that are hard to explain.
 A filter with no text query returns the whole filtered pool in catalog
 order, rather than an order manufactured from an empty embedding.
 
+The score in each results tuple carries no fixed meaning: a matched set
+is ordered by the score `mode` selected, everything else by the fused
+RRF sum. `score_kind` in the outcome names which of those a caller is
+holding, since the scales are an order of magnitude apart and nothing
+in the value itself distinguishes them.
+
 An embedding matrix and its lookup are matched by row position and
 nothing else, so both are verified against a manifest fingerprint before
 a query runs. See verify_index.
@@ -75,6 +81,17 @@ MIN_PARTIAL_TERMS = 2
 GRADIENT_CEILING = 40
 GRADIENT_FLOOR = 0.35
 SEMANTIC_DROP = 0.80
+
+# What scale the score in each results tuple is on. The branch that
+# produced a result decides this, and the three scales are not
+# comparable: RRF sums sit near 0.03, SigLIP cosines near 0.10, BGE
+# cosines near 0.7. Named for the modality rather than the model, so
+# swapping an encoder in configs/models.yaml cannot turn a stored
+# identifier into a lie.
+SCORE_CAPTION = "caption_cosine"
+SCORE_IMAGE = "image_cosine"
+SCORE_FUSED = "rrf_sum"
+SCORE_NONE = "none"
 
 STOPWORDS = {
     "a", "an", "the", "of", "in", "on", "at", "with", "and", "or",
@@ -353,6 +370,7 @@ def empty_result(cap_lookup, allowed, basis, resolved_people,
 
     return {
         "results": [(path, 0.0) for path in order],
+        "score_kind": SCORE_NONE,
         "basis": basis,
         "matched": set(),
         "hits": {},
@@ -462,8 +480,10 @@ def search(query, mode="hybrid", top_k=0, rrf_k=RRF_K,
     # default rather than being silently overridden by it.
     if mode == "image":
         match_score, score_label = img_by_path, "image score"
+        match_kind = SCORE_IMAGE
     else:
         match_score, score_label = cap_by_path, "caption score"
+        match_kind = SCORE_CAPTION
 
     ordered = sorted(fused.items(), key=lambda kv: (-kv[1], kv[0]))
 
@@ -494,16 +514,19 @@ def search(query, mode="hybrid", top_k=0, rrf_k=RRF_K,
         results = []
         basis = "no images match the filter"
         matched = set()
+        score_kind = SCORE_NONE
     elif top_k:
         results = ordered[:top_k]
         basis = "fixed count (--top-k " + str(top_k) + ")"
         matched = set()
+        score_kind = SCORE_FUSED
     elif full:
         kept, trimmed = semantic_order(
             list(full), match_score, semantic_drop, trim
         )
         results = [(p, match_score[p]) for p in kept]
         matched = full
+        score_kind = match_kind
         basis = ("full caption match - " + str(len(full)) + " of "
                  + str(pool) + " captions contain all "
                  + str(total_terms)
@@ -514,12 +537,14 @@ def search(query, mode="hybrid", top_k=0, rrf_k=RRF_K,
         )
         results = [(p, match_score[p]) for p in kept]
         matched = partial
+        score_kind = match_kind
         basis = ("partial caption match - at least " + str(threshold)
                  + " of " + str(total_terms) + " terms")
     else:
         results = ordered[:max(img_cut, cap_cut)]
         basis = "score gradient - no caption mentions these terms"
         matched = set()
+        score_kind = SCORE_FUSED
         low_confidence = not (img_found or cap_found)
 
     if trimmed:
@@ -527,6 +552,7 @@ def search(query, mode="hybrid", top_k=0, rrf_k=RRF_K,
 
     return {
         "results": results,
+        "score_kind": score_kind,
         "basis": basis,
         "matched": matched,
         "hits": hits,
