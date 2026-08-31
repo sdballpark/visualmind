@@ -175,6 +175,14 @@ Install the pre-commit hook before working on this:
 
     git config core.hooksPath .githooks
 
+Git never transfers hooks. They live in `.git/hooks`, which sits outside
+the working tree and so is not part of what a clone copies - a repository
+that shipped its own hooks could run arbitrary code on anyone who cloned
+it. `core.hooksPath` opts in explicitly by pointing Git at the tracked
+`.githooks/` directory. It is per-clone local config, so every fresh
+clone needs this command again, and a contributor who skips it gets no
+hook and no warning that it is missing.
+
 ## Pipeline
 
     scripts/inspect_archive.py           validate the source archive
@@ -209,7 +217,8 @@ groupings are all gitignored, and a pre-commit hook refuses to stage them
 regardless. Face embeddings are biometric identifiers for identifiable
 people; caption text and lookup CSVs describe private photographs.
 
-The hook is local and does not travel with a clone - install it as above.
+The hook is local config rather than tracked state, so a fresh clone has
+none until `core.hooksPath` is set - see Setup.
 
 The source archive is read-only. No script moves or deletes a source file.
 
