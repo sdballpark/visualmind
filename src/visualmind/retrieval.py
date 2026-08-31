@@ -26,6 +26,12 @@ which words are names fails in ways that are hard to explain.
 A filter with no text query returns the whole filtered pool in catalog
 order, rather than an order manufactured from an empty embedding.
 
+Every ordering breaks ties on source path. Equal scores are common -
+RRF sums collide whenever two images hold each other's ranks in the two
+modalities - and the sets and dicts they arrive in do not iterate in a
+stable order across processes, so an untied sort ranks the same query
+differently between runs.
+
 Trimming the tail of a matched set, by whichever score ordered it, is
 available behind the `trim` flag but is off by default. See
 evals/retrieval-evaluation.md.
@@ -197,8 +203,12 @@ def semantic_order(paths, score_by_path, drop_ratio, trim):
 
     `score_by_path` decides both the order and, under `trim`, which
     tail entries are discarded, so the two can never disagree.
+
+    Equal scores fall back to path order. Callers pass a list built from
+    a set, whose iteration order varies with PYTHONHASHSEED, so without
+    a tie-break the same query can rank differently between runs.
     """
-    ranked = sorted(paths, key=lambda p: score_by_path[p], reverse=True)
+    ranked = sorted(paths, key=lambda p: (-score_by_path[p], p))
 
     if not trim or len(ranked) < 4:
         return ranked, []
@@ -328,14 +338,16 @@ def search(query, mode="hybrid", top_k=0, rrf_k=RRF_K,
     def permitted(path):
         return allowed is None or path in allowed
 
-    img_paths = [
-        img_lookup[i]["source_path"] for i in np.argsort(img_s)[::-1]
-        if permitted(img_lookup[i]["source_path"])
-    ]
-    cap_paths = [
-        cap_lookup[i]["source_path"] for i in np.argsort(cap_s)[::-1]
-        if permitted(cap_lookup[i]["source_path"])
-    ]
+    img_paths = sorted(
+        (row["source_path"] for row in img_lookup
+         if permitted(row["source_path"])),
+        key=lambda path: (-img_by_path[path], path),
+    )
+    cap_paths = sorted(
+        (row["source_path"] for row in cap_lookup
+         if permitted(row["source_path"])),
+        key=lambda path: (-cap_by_path[path], path),
+    )
 
     pool = len(cap_paths)
 
@@ -361,7 +373,7 @@ def search(query, mode="hybrid", top_k=0, rrf_k=RRF_K,
     else:
         match_score, score_label = cap_by_path, "caption score"
 
-    ordered = sorted(fused.items(), key=lambda kv: kv[1], reverse=True)
+    ordered = sorted(fused.items(), key=lambda kv: (-kv[1], kv[0]))
 
     hits, total_terms = term_hits(query, cap_lookup, allowed)
     full = {p for p, n in hits.items() if n == total_terms}

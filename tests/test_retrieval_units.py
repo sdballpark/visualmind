@@ -1,20 +1,14 @@
 """Unit tests for the retrieval helpers that take no I/O."""
-import pytest
-
 from visualmind import retrieval
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="finding 3: sorted() is stable, so equal scores keep whatever "
-           "order the caller passed - and the caller passes a set",
-)
 def test_equal_scores_order_independently_of_input_order():
     """SO-5: the same paths and scores, handed over in two orders.
 
     This is the unit-level form of the tie-break defect. search() feeds
     semantic_order a list built from a set, so 'the order the caller
-    passed' is not a stable thing to inherit.
+    passed' is not a stable thing to inherit; the sort tie-breaks on
+    path instead.
     """
     scores = {"a": 1.0, "b": 1.0, "c": 1.0}
 

@@ -128,19 +128,15 @@ def test_other_modes_keep_caption_ordering_in_a_matched_set(
 TIED = [f"img{number:02d}" for number in range(1, 17)]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="finding 3: fused ties break on set iteration order, so the "
-           "order varies with PYTHONHASHSEED",
-)
 def test_tied_fused_scores_break_by_path(fake_corpus):
     """S-5: image and caption rankings are exact inverses.
 
     img01 ranks 1st by image and 16th by caption; img16 is the mirror,
-    so their RRF sums are equal - and so are seven other pairs. Nothing
-    orders them today, so this asserts the tie-break a fix should give
-    them. Eight independent pairs make an accidental pass improbable
-    rather than merely unlikely.
+    so their RRF sums are equal - and so are seven other pairs. Before
+    the tie-break, order came from set iteration and varied with
+    PYTHONHASHSEED. Eight independent pairs are kept so that a
+    regression removing the tie-break fails at 255 runs in 256 rather
+    than on a coin flip.
     """
     fake_corpus(
         TIED,
@@ -162,15 +158,11 @@ def test_tied_fused_scores_break_by_path(fake_corpus):
 EQUAL = ["q1", "q2", "q3", "q4", "q5", "q6"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="finding 3: semantic_order receives list(full) from a set, so "
-           "equal caption scores land in arbitrary order",
-)
 def test_tied_matched_set_breaks_by_path(fake_corpus):
     """S-6: six full matches sharing one caption score.
 
-    sorted() is stable, so the output order is whatever the set gave it.
+    semantic_order receives list(full) from a set, so before the
+    tie-break the output order was whatever that set happened to give.
     """
     fake_corpus(
         EQUAL,
