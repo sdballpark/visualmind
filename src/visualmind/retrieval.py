@@ -8,6 +8,12 @@ score decides their order. Term matching has no notion of subject and
 object - "holding" and "baby" both appear in a caption describing a baby
 holding a ladle - so it bounds the candidate set rather than ranking it.
 
+`mode` selects the score that orders a matched set: caption score under
+"hybrid" and "caption", image score under "image". Hybrid deliberately
+orders matched sets by caption score alone - RRF order was measured
+against it and scored no better. Outside a matched set, where results
+come from the score gradient, "hybrid" fuses both rankings with RRF.
+
 People and events are hard pre-filters applied before any scoring, and
 they compose: naming both narrows to their intersection. Several people
 must all be present; several events are a union, since an image belongs
@@ -20,8 +26,9 @@ which words are names fails in ways that are hard to explain.
 A filter with no text query returns the whole filtered pool in catalog
 order, rather than an order manufactured from an empty embedding.
 
-Trimming the tail of a matched set by caption score is available behind
-the `trim` flag but is off by default. See evals/retrieval-evaluation.md.
+Trimming the tail of a matched set, by whichever score ordered it, is
+available behind the `trim` flag but is off by default. See
+evals/retrieval-evaluation.md.
 """
 import csv
 import re
@@ -185,15 +192,19 @@ def rrf(paths, k):
     }
 
 
-def semantic_order(paths, cap_by_path, drop_ratio, trim):
-    """Order a candidate set by caption similarity."""
-    ranked = sorted(paths, key=lambda p: cap_by_path[p], reverse=True)
+def semantic_order(paths, score_by_path, drop_ratio, trim):
+    """Order a candidate set by one modality's similarity score.
+
+    `score_by_path` decides both the order and, under `trim`, which
+    tail entries are discarded, so the two can never disagree.
+    """
+    ranked = sorted(paths, key=lambda p: score_by_path[p], reverse=True)
 
     if not trim or len(ranked) < 4:
         return ranked, []
 
-    best = cap_by_path[ranked[0]]
-    worst = cap_by_path[ranked[-1]]
+    best = score_by_path[ranked[0]]
+    worst = score_by_path[ranked[-1]]
     spread = best - worst
 
     if spread <= 0:
@@ -201,8 +212,8 @@ def semantic_order(paths, cap_by_path, drop_ratio, trim):
 
     threshold = best - drop_ratio * spread
 
-    kept = [p for p in ranked if cap_by_path[p] >= threshold]
-    dropped = [p for p in ranked if cap_by_path[p] < threshold]
+    kept = [p for p in ranked if score_by_path[p] >= threshold]
+    dropped = [p for p in ranked if score_by_path[p] < threshold]
 
     return kept, dropped
 
@@ -307,6 +318,10 @@ def search(query, mode="hybrid", top_k=0, rrf_k=RRF_K,
         row["source_path"]: float(cap_s[i])
         for i, row in enumerate(cap_lookup)
     }
+    img_by_path = {
+        row["source_path"]: float(img_s[i])
+        for i, row in enumerate(img_lookup)
+    }
 
     corpus_size = len(cap_lookup)
 
@@ -337,6 +352,15 @@ def search(query, mode="hybrid", top_k=0, rrf_k=RRF_K,
             for path in set(img_rrf) | set(cap_rrf)
         }
 
+    # Matched sets keep caption-score ordering under hybrid: RRF order
+    # was measured against it and scored no better - see Finding 7 in
+    # evals/retrieval-evaluation.md. --mode image opts out of that
+    # default rather than being silently overridden by it.
+    if mode == "image":
+        match_score, score_label = img_by_path, "image score"
+    else:
+        match_score, score_label = cap_by_path, "caption score"
+
     ordered = sorted(fused.items(), key=lambda kv: kv[1], reverse=True)
 
     hits, total_terms = term_hits(query, cap_lookup, allowed)
@@ -345,15 +369,18 @@ def search(query, mode="hybrid", top_k=0, rrf_k=RRF_K,
     threshold = min(min_partial_terms, total_terms) if total_terms else 0
     partial = {p for p, n in hits.items() if threshold and n >= threshold}
 
-    subset = np.array(
+    cap_subset = np.array(
         [cap_by_path[p] for p in cap_paths]
     ) if cap_paths else np.array([0.0])
+    img_subset = np.array(
+        [img_by_path[p] for p in img_paths]
+    ) if img_paths else np.array([0.0])
 
     img_cut, img_found = gradient_cutoff(
-        img_s if allowed is None else subset, gradient_floor
+        img_s if allowed is None else img_subset, gradient_floor
     )
     cap_cut, cap_found = gradient_cutoff(
-        cap_s if allowed is None else subset, gradient_floor
+        cap_s if allowed is None else cap_subset, gradient_floor
     )
 
     low_confidence = False
@@ -369,9 +396,9 @@ def search(query, mode="hybrid", top_k=0, rrf_k=RRF_K,
         matched = set()
     elif full:
         kept, trimmed = semantic_order(
-            list(full), cap_by_path, semantic_drop, trim
+            list(full), match_score, semantic_drop, trim
         )
-        results = [(p, cap_by_path[p]) for p in kept]
+        results = [(p, match_score[p]) for p in kept]
         matched = full
         basis = ("full caption match - " + str(len(full)) + " of "
                  + str(pool) + " captions contain all "
@@ -379,9 +406,9 @@ def search(query, mode="hybrid", top_k=0, rrf_k=RRF_K,
                  + (" term" if total_terms == 1 else " terms"))
     elif partial:
         kept, trimmed = semantic_order(
-            list(partial), cap_by_path, semantic_drop, trim
+            list(partial), match_score, semantic_drop, trim
         )
-        results = [(p, cap_by_path[p]) for p in kept]
+        results = [(p, match_score[p]) for p in kept]
         matched = partial
         basis = ("partial caption match - at least " + str(threshold)
                  + " of " + str(total_terms) + " terms")
@@ -392,7 +419,7 @@ def search(query, mode="hybrid", top_k=0, rrf_k=RRF_K,
         low_confidence = not (img_found or cap_found)
 
     if trimmed:
-        basis += ", " + str(len(trimmed)) + " trimmed by caption score"
+        basis += ", " + str(len(trimmed)) + " trimmed by " + score_label
 
     return {
         "results": results,
