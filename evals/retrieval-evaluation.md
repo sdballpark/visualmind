@@ -120,7 +120,7 @@ Measured over nine queries:
 | "birthday cake"             | full match    | 16       | 16      |
 | "wedding"                   | full match    | 11       | 11      |
 | "swimming pool"             | full match    | 6        | 6       |
-| "people wearing sunglasses" | full match    | 10       | 10      |
+| "people wearing sunglasses" | full match    | 30       | 28      |
 | "a red car"                 | full match    | 3        | 3       |
 | "someone holding a baby"    | full match    | 18       | 15      |
 
@@ -131,7 +131,7 @@ missing 10 dogs that exist.
 
 | Query type      | Queries | Images | Precision |
 |-----------------|---------|--------|-----------|
-| Concrete nouns  | 8       | 90     | 100%      |
+| Concrete nouns  | 8       | 110    | 98%       |
 | Relational      | 1       | 18     | 83%       |
 
 Term matching is exact when the query names objects. It degrades when the
@@ -150,6 +150,36 @@ the gradient path, returning 40 results. The only blocker was the word
 "someone", which appears in no caption. Adding it and similar generic terms
 ("people", "photo", "person") to the stopword list converted the query from
 a 40-result guess to an 18-result set at 83% precision.
+
+### That stopword change moved a second query, unmeasured
+
+The "people wearing sunglasses" row above read 10 returned, 10 correct
+until this revision. The query returns 30, hand-labelled as 28 correct.
+The two exceptions are a man with sunglasses around his neck who is
+wearing reading glasses, counted as a miss, and a photograph of children
+ice skating.
+
+The term-matching fix did not cause this. That change was captured
+before and after against all ten queries cited in this document and left
+every one byte-identical in count, membership, and ordering; the count
+was already 30 beforehand.
+
+It moved with the stopword change described just above. Adding "people",
+"person" and "photo" to the list to rescue "someone holding a baby" also
+dropped "people" from this query's required terms, turning a three-term
+match into a two-term one on "wearing" and "sunglasses". The stricter
+three-term match had been hiding 18 correct images. Recall tripled;
+precision for the query fell from 100% to 93%, which moves the
+concrete-noun split above from 100% to 98%.
+
+The process finding matters more than the row. A change made for one
+query silently moved another query's published number, and nobody re-ran
+the affected query afterwards, so the figure stayed here, wrong, until a
+baseline capture for an unrelated change surfaced it. Catching exactly
+that is what this document is for. The stopword list, the tokeniser and
+the term-match rule are shared by every query, so the nine above are a
+suite to re-run whenever one of them changes, not a set of results to
+quote.
 
 ## Finding 7 - semantic reranking did not fix relational queries
 
