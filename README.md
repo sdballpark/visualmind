@@ -190,6 +190,12 @@ captions, invented people - and not the family archive. The interface,
 the layout and the search behaviour are real; every photograph in the
 corpus this was built against is private, so none of it appears here.
 
+`scripts/build_demo_corpus.py` writes that demo set, and its docstring
+carries the rest of the recipe: which builders to run over it, and how
+to check the API is serving it rather than the archive before capturing
+anything. It is seeded, so it rebuilds the same sixty images byte for
+byte.
+
 ![The collection](docs/screenshots/01-collection.png)
 The whole collection: a density strip over capture time above a justified
 grid that keeps every image's aspect ratio.
