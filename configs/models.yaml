@@ -59,14 +59,20 @@ models:
     cache: ~/.insightface (not HF_HOME)
     status: active
 
-  face_detection:
-    provider: insightface
-    repo_id: buffalo_l
-    revision: unversioned
-    license: non-commercial-research-only
-    license_note: InsightFace pretrained models require a separate licence for commercial use.
-    purpose: face detection (SCRFD) and 512-d recognition embeddings (ArcFace)
-    precision: float32
-    runtime: onnxruntime CPU - onnxruntime-gpu is shadowed by the CPU package
-    cache: ~/.insightface (not HF_HOME)
+  query_understanding:
+    provider: huggingface
+    repo_id: Qwen/Qwen3-1.7B
+    revision: 70d244cc86ccca08cf5af4e1e306ecf908b1ad5e
+    license: apache-2.0
+    purpose: extract person, event and search terms from a raw query
+    precision: bfloat16
+    note: >-
+      Runs beside the two encoders the API holds warm, which is what
+      bounds the size. SigLIP2 and BGE together sit at 6.2 GB of the
+      16 GB card once the CUDA context is counted, so the budget for a
+      third resident model is around 8 GB after leaving headroom for a
+      batch. 1.7B at bfloat16 uses well under that and leaves room to
+      spare; a 4B would fit only by spending most of what is left.
+      Thinking mode is disabled - the task is extraction against a
+      roster it is given, not reasoning.
     status: active

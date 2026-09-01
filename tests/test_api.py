@@ -73,6 +73,11 @@ def library_files(monkeypatch, tmp_path):
 def client(library_files, monkeypatch):
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(retrieval, "hold_models", lambda enabled=True: None)
+    # No query model. Without this every /search test would load a 1.7B
+    # model onto the card, which took the suite from 0.6s to 6.9s and
+    # made it need a GPU to run. Understanding has its own tests, with
+    # the reply written by hand.
+    monkeypatch.setattr(api.query, "available", lambda: False)
 
     return TestClient(api.create_app())
 
@@ -721,3 +726,117 @@ def test_unmatched_faces_is_zero_when_everything_was_placed(
     monkeypatch.setattr(api.people, "LABELS", labels)
 
     assert client.get(f"/image/{SHAS[PATHS[0]]}").json()["unmatched_faces"] == 0
+
+
+# --- query understanding ---------------------------------------------
+
+
+def understand_as(monkeypatch, parsed):
+    """Stand in for the parser with a fixed reading of the query."""
+    monkeypatch.setattr(api.query, "parse", lambda text: parsed)
+
+
+def test_search_reports_what_it_understood(client, monkeypatch):
+    """The reader has to be able to see a misread, so it travels back."""
+    seen = {}
+    monkeypatch.setattr(retrieval, "search", lambda *a, **k: seen.update(
+        {"terms": a[0], **k}) or fake_search())
+    understand_as(monkeypatch, {
+        "query": "Bob with sunglasses", "persons": ["Bob Welch"],
+        "events": [], "terms": "with sunglasses", "dropped": [],
+        "source": "model", "note": "",
+    })
+
+    body = client.get("/search", params={"q": "Bob with sunglasses"}).json()
+
+    assert body["understood"]["persons"] == ["Bob Welch"]
+    assert body["understood"]["terms"] == "with sunglasses"
+
+
+def test_retrieval_receives_the_parsed_terms_and_filters(client, monkeypatch):
+    """The layer sits above retrieval; retrieval's inputs do not change."""
+    seen = {}
+
+    def spy(text, **kwargs):
+        seen["text"] = text
+        seen.update(kwargs)
+        return fake_search()
+
+    monkeypatch.setattr(retrieval, "search", spy)
+    understand_as(monkeypatch, {
+        "query": "Bob with sunglasses", "persons": ["Bob Welch"],
+        "events": ["event-001"], "terms": "with sunglasses", "dropped": [],
+        "source": "model", "note": "",
+    })
+
+    client.get("/search", params={"q": "Bob with sunglasses"})
+
+    assert seen["text"] == "with sunglasses"
+    assert seen["persons"] == ["Bob Welch"]
+    assert seen["event_names"] == ["event-001"]
+
+
+def test_an_explicit_filter_is_never_lost_to_a_parse(client, monkeypatch):
+    """?person= is what the reader asked for, not what a model inferred."""
+    seen = {}
+
+    def spy(text, **kwargs):
+        seen.update(kwargs)
+        return fake_search()
+
+    monkeypatch.setattr(retrieval, "search", spy)
+    understand_as(monkeypatch, {
+        "query": "zebra", "persons": ["Bob Welch"], "events": [],
+        "terms": "zebra", "dropped": [], "source": "model", "note": "",
+    })
+
+    client.get("/search", params={"q": "zebra", "person": "Ada Fixture"})
+
+    assert seen["persons"] == ["Ada Fixture", "Bob Welch"]
+
+
+def test_understanding_can_be_turned_off(client, monkeypatch):
+    seen = {}
+
+    def spy(text, **kwargs):
+        seen["text"] = text
+        seen.update(kwargs)
+        return fake_search()
+
+    monkeypatch.setattr(retrieval, "search", spy)
+    monkeypatch.setattr(api.query, "parse", lambda text: (_ for _ in ()).throw(
+        AssertionError("parse should not have been called")))
+
+    body = client.get(
+        "/search", params={"q": "Bob with sunglasses", "understand": "false"},
+    ).json()
+
+    assert seen["text"] == "Bob with sunglasses"
+    assert seen["persons"] == []
+    assert body["understood"]["source"] == "fallback"
+
+
+def test_a_dropped_name_is_reported_not_hidden(client, monkeypatch):
+    """The whole point: a name that did not survive is still visible."""
+    monkeypatch.setattr(retrieval, "search", lambda *a, **k: fake_search())
+    understand_as(monkeypatch, {
+        "query": "Zebediah at the beach", "persons": [], "events": [],
+        "terms": "Zebediah at the beach",
+        "dropped": [{"text": "Zebediah", "as": "person", "why": "unknown"}],
+        "source": "model", "note": "nothing proposed survived validation",
+    })
+
+    body = client.get("/search", params={"q": "Zebediah at the beach"}).json()
+
+    assert body["understood"]["dropped"][0]["text"] == "Zebediah"
+    assert body["understood"]["persons"] == []
+
+
+def test_search_still_works_with_no_query_model(client, monkeypatch):
+    """available() is False in this fixture, so this is the real path."""
+    monkeypatch.setattr(retrieval, "search", lambda *a, **k: fake_search())
+
+    body = client.get("/search", params={"q": "a red car"}).json()
+
+    assert body["understood"]["source"] == "fallback"
+    assert body["understood"]["terms"] == "a red car"

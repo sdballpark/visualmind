@@ -26,7 +26,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from visualmind import events, people, retrieval
+from visualmind import events, people, query, retrieval
 
 CATALOG = Path("data/metadata/image_catalog.csv")
 DUPLICATES = Path("data/metadata/duplicate_groups.csv")
@@ -438,6 +438,9 @@ def create_app():
         mode: str = Query("hybrid", pattern="^(hybrid|image|caption)$"),
         top_k: int = Query(0, ge=0),
         trim: bool = Query(False),
+        understand: bool = Query(
+            True, description="Read names out of the query text."
+        ),
     ):
         if not q and not person and not event:
             raise HTTPException(
@@ -445,16 +448,37 @@ def create_app():
                 detail="give q, person or event",
             )
 
+        # A layer above retrieval, not a change to it. The query text is
+        # read for names first; retrieval still receives persons, event
+        # names and terms exactly as it always has, and is unaware that
+        # anything happened before it was called. Filters given
+        # explicitly are kept as well as anything read out of the text,
+        # so ?person=... never loses to a parse.
+        understood = query.parse(q) if understand else query.fallback(
+            q, "understanding disabled for this request"
+        )
+
+        persons = list(person) + [
+            name for name in understood["persons"] if name not in person
+        ]
+        events = list(event) + [
+            name for name in understood["events"] if name not in event
+        ]
+
         outcome = retrieval.search(
-            q,
+            understood["terms"],
             mode=mode,
             top_k=top_k,
             trim=trim,
-            persons=person,
-            event_names=event,
+            persons=persons,
+            event_names=events,
         )
 
-        return search_payload(library(), outcome)
+        # What it made of the query travels back with the results. A
+        # reader who types "Bob with sunglasses" has to be able to see
+        # that it became a person and a term, the same way the basis
+        # line already admits when results came from a gradient.
+        return {**search_payload(library(), outcome), "understood": understood}
 
     @app.get("/images")
     def images(offset: int = Query(0, ge=0), limit: int = Query(100, ge=1)):
