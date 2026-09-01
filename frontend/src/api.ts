@@ -22,6 +22,45 @@ export interface PaletteResponse {
   marks: PaletteMark[]
 }
 
+export interface Dimensions {
+  width: number
+  height: number
+}
+
+export interface ImageRecord {
+  sha256: string
+  filename: string
+  caption: string
+  captured: string | null
+  grid: Dimensions | null
+  lightbox: Dimensions | null
+}
+
+export interface ImagesResponse {
+  total: number
+  offset: number
+  limit: number
+  images: ImageRecord[]
+}
+
+export async function fetchImages(
+  offset: number,
+  limit: number,
+): Promise<ImagesResponse> {
+  const response = await fetch(`/images?offset=${offset}&limit=${limit}`)
+
+  if (!response.ok) {
+    throw new Error(`/images responded ${response.status}`)
+  }
+
+  return response.json()
+}
+
+/** Where a grid thumbnail lives. The frontend builds this from the sha. */
+export function gridThumbnail(sha256: string): string {
+  return `/thumbnails/grid/${sha256}.jpg`
+}
+
 export async function fetchPalette(): Promise<PaletteResponse> {
   const response = await fetch('/palette')
 

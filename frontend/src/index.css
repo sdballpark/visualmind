@@ -92,6 +92,30 @@ header p {
   white-space: nowrap;
 }
 
+/*
+ * The grid. No borders, no shadows, no rounded corners - the
+ * photographs are the only colour below the band.
+ */
+.grid {
+  position: relative;
+  width: 100%;
+  margin-top: 56px;
+}
+
+.row {
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+
+.photo {
+  position: absolute;
+  top: 0;
+  display: block;
+  object-fit: cover;
+  background: #efeae1;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .band rect {
     animation: none;
