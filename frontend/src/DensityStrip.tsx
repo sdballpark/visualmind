@@ -40,6 +40,12 @@ interface Placed {
   width: number
   height: number
   color: string
+  /**
+   * Whether this mark is in the current result set. Always true when
+   * nothing is highlighted, so the resting strip has no recessive
+   * marks rather than a set of them that happens to be everything.
+   */
+  lit: boolean
 }
 
 function markHeight(lightness: number | null): number {
@@ -81,7 +87,13 @@ function useWidth(): [React.RefObject<HTMLDivElement | null>, number] {
   return [ref, width]
 }
 
-export function place(marks: PaletteMark[], width: number) {
+export function place(
+  marks: PaletteMark[],
+  width: number,
+  highlight?: ReadonlySet<string>,
+) {
+  const lit = (sha: string) => !highlight || highlight.has(sha)
+
   const dated = marks
     .filter((mark) => mark.captured !== null)
     .sort((a, b) => a.captured!.localeCompare(b.captured!))
@@ -105,6 +117,7 @@ export function place(marks: PaletteMark[], width: number) {
     width: MARK_WIDTH,
     height: markHeight(mark.lightness),
     color: colorFor(mark.hue),
+    lit: lit(mark.sha256),
   }))
 
   const step = undated.length > 1 ? undatedWidth / (undated.length - 1) : 0
@@ -118,6 +131,7 @@ export function place(marks: PaletteMark[], width: number) {
       // know least about should not be what the eye reaches first.
       color: mutedColorFor(mark.hue),
       height: markHeight(mark.lightness),
+      lit: lit(mark.sha256),
     })
   })
 
@@ -130,6 +144,7 @@ export function place(marks: PaletteMark[], width: number) {
     latest: times.length ? new Date(latest) : null,
     datedCount: dated.length,
     undatedCount: undated.length,
+    litCount: placed.filter((mark) => mark.lit).length,
   }
 }
 
@@ -137,28 +152,48 @@ function year(date: Date | null): string {
   return date ? String(date.getUTCFullYear()) : ''
 }
 
-export function DensityStrip({ marks }: { marks: PaletteMark[] }) {
+/**
+ * `highlight` is the current result set, or undefined when there is no
+ * query. Marks outside it recede; the band still draws every one of
+ * them, because a search changes what is emphasised and not what
+ * exists. Dropping the rest would turn the claim "this is the whole
+ * collection" into "this is the whole collection, sometimes".
+ */
+export function DensityStrip({
+  marks,
+  highlight,
+}: {
+  marks: PaletteMark[]
+  highlight?: ReadonlySet<string>
+}) {
   const [ref, width] = useWidth()
 
-  const layout = useMemo(() => place(marks, width), [marks, width])
+  const layout = useMemo(
+    () => place(marks, width, highlight),
+    [marks, width, highlight],
+  )
+
+  const label = highlight
+    ? `${marks.length} photographs, ${layout.litCount} in the current ` +
+      'results, shown by capture time'
+    : `${marks.length} photographs, ${layout.datedCount} placed by ` +
+      `capture time and ${layout.undatedCount} undated`
 
   return (
     <div className="strip" ref={ref}>
       {width > 0 && (
         <>
           <svg
-            className="band"
+            className={highlight ? 'band searching' : 'band'}
             width={width}
             height={BAND}
             role="img"
-            aria-label={
-              `${marks.length} photographs, ${layout.datedCount} placed by ` +
-              `capture time and ${layout.undatedCount} undated`
-            }
+            aria-label={label}
           >
             {layout.placed.map((mark, index) => (
               <rect
                 key={mark.key}
+                className={mark.lit ? undefined : 'dim'}
                 x={mark.x}
                 y={(BAND - mark.height) / 2}
                 width={mark.width}

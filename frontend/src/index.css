@@ -339,3 +339,116 @@ header p a {
     animation: none;
   }
 }
+
+/*
+ * The query field.
+ *
+ * A rule under a line of text, which is the only chrome the page
+ * allows itself. No border box, no rounded corners, no icon: the rest
+ * of this interface has none, and a control shaped like a search widget
+ * would be the one object on the page announcing what it is.
+ */
+.search {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  margin: 0 0 30px;
+  border-bottom: 1px solid var(--faint);
+}
+
+.search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 0 10px;
+  border: none;
+  background: none;
+  font-family: var(--serif);
+  font-size: 25px;
+  color: var(--ink);
+}
+
+.search input::placeholder {
+  color: var(--faint);
+}
+
+/*
+ * The caret is the only affordance, so the field must not lose its
+ * outline silently - it gains a darker rule instead of a focus ring,
+ * which would be a box by another name.
+ */
+.search input:focus {
+  outline: none;
+}
+
+.search:focus-within {
+  border-bottom-color: var(--quiet);
+}
+
+.search .working {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--faint);
+  letter-spacing: 0.06em;
+  padding-bottom: 12px;
+}
+
+/*
+ * The basis line. The largest text on the page, because it is the
+ * system saying what it did and on what evidence - the count above the
+ * grid means nothing without it.
+ */
+.basis {
+  margin: 0 0 44px;
+  max-width: 46em;
+}
+
+.basis .count {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: var(--quiet);
+}
+
+.basis .line {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 29px;
+  line-height: 1.35;
+  color: var(--ink);
+}
+
+/*
+ * Low confidence is a separate claim from the basis, not a louder
+ * version of it, so it reads as a sentence rather than a badge. The
+ * gradient case already says it came from the gradient; this only adds
+ * that the gradient found no edge either.
+ */
+.basis .caution {
+  margin: 14px 0 0;
+  max-width: 38em;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--quiet);
+}
+
+/*
+ * A search changes what the band emphasises, never what it draws. The
+ * marks outside the results stay in place at a lower weight, so the
+ * shape of the whole collection is still legible behind the answer.
+ */
+.band rect.dim {
+  opacity: 0.16;
+}
+
+.band rect {
+  transition: opacity 260ms ease;
+}
+
+.diagnostics .query {
+  font-family: var(--serif);
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.diagnostics .aside {
+  color: var(--faint);
+}

@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { gridThumbnail, type ImageRecord } from './api'
 import { heightOf, justify, ratioOf, visibleRange } from './justify'
 import { currentPath, navigate, recall } from './router'
-import { useCollection, type Filter } from './useCollection'
+import type { Collection } from './useCollection'
 
 /**
  * The collection as a justified grid.
@@ -14,7 +14,6 @@ import { useCollection, type Filter } from './useCollection'
  * fitting it into a working grid later would mean rewriting it.
  */
 
-const PAGE = 120
 const TARGET_HEIGHT = 208
 const GAP = 5
 const BUFFER = 1.4
@@ -50,11 +49,14 @@ function useViewport() {
   return { ...state, direction: direction.current }
 }
 
-export function PhotoGrid({ filter }: { filter: Filter }) {
-  const { images, total, failed, complete, loadMore } = useCollection(
-    PAGE,
-    filter,
-  )
+/*
+ * The collection is a prop rather than a hook call here. The basis line
+ * and the strip's highlighting need the same outcome this grid is
+ * drawn from, and fetching it twice would let the sentence on the page
+ * describe a different search than the images under it.
+ */
+export function PhotoGrid({ collection }: { collection: Collection }) {
+  const { images, total, failed, complete, loadMore } = collection
   const container = useRef<HTMLDivElement | null>(null)
   const [width, setWidth] = useState(0)
   const [offsetTop, setOffsetTop] = useState(0)

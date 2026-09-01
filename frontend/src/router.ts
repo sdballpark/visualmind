@@ -12,7 +12,7 @@ import { useEffect, useState } from 'react'
  */
 
 export type Route =
-  | { name: 'grid'; person?: string; event?: string }
+  | { name: 'grid'; person?: string; event?: string; q?: string }
   | { name: 'photo'; sha: string }
 
 const SHA = /^\/photo\/([0-9a-f]{64})$/
@@ -26,10 +26,16 @@ export function parseRoute(pathname: string, search = ''): Route {
 
   const params = new URLSearchParams(search)
 
+  // An empty q is dropped rather than carried as "". The API rejects a
+  // request with no query and no filter, and "/?q=" would otherwise be
+  // a URL that always errors.
+  const q = params.get('q')?.trim()
+
   return {
     name: 'grid',
     person: params.get('person') ?? undefined,
     event: params.get('event') ?? undefined,
+    q: q ? q : undefined,
   }
 }
 
@@ -46,6 +52,10 @@ export function pathFor(route: Route): string {
 
   if (route.event) {
     params.set('event', route.event)
+  }
+
+  if (route.q) {
+    params.set('q', route.q)
   }
 
   const query = params.toString()

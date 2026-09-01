@@ -190,3 +190,47 @@ describe('placement', () => {
     expect(only.color).not.toBe(NEUTRAL)
   })
 })
+
+describe('highlighting a result set', () => {
+  const marks = [
+    mark({ sha256: 'in-1', captured: '2020-01-01T00:00:00' }),
+    mark({ sha256: 'out-1', captured: '2021-01-01T00:00:00' }),
+    mark({ sha256: 'in-2', captured: null }),
+    mark({ sha256: 'out-2', captured: null }),
+  ]
+
+  it('lights every mark when nothing is highlighted', () => {
+    // The resting strip has no recessive marks, rather than a set of
+    // them that happens to be all of them.
+    const layout = place(marks, WIDTH)
+
+    expect(layout.placed.every((placed) => placed.lit)).toBe(true)
+    expect(layout.litCount).toBe(marks.length)
+  })
+
+  it('still places every mark when a search is on', () => {
+    // A search changes what is emphasised, not what exists. Dropping
+    // the rest would turn "this is the whole collection" into "this is
+    // the whole collection, sometimes".
+    const layout = place(marks, WIDTH, new Set(['in-1', 'in-2']))
+
+    expect(layout.placed).toHaveLength(marks.length)
+    expect(layout.datedCount).toBe(2)
+    expect(layout.undatedCount).toBe(2)
+  })
+
+  it('lights only the results, dated and undated alike', () => {
+    const layout = place(marks, WIDTH, new Set(['in-1', 'in-2']))
+    const lit = layout.placed.filter((placed) => placed.lit).map((p) => p.key)
+
+    expect(lit.sort()).toEqual(['in-1', 'in-2'])
+    expect(layout.litCount).toBe(2)
+  })
+
+  it('lights nothing when a search returned nothing', () => {
+    const layout = place(marks, WIDTH, new Set<string>())
+
+    expect(layout.litCount).toBe(0)
+    expect(layout.placed).toHaveLength(marks.length)
+  })
+})

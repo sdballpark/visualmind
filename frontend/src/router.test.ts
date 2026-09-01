@@ -51,3 +51,47 @@ describe('scroll memory', () => {
     expect(recall('/')).toBe(4820)
   })
 })
+
+describe('a query in the route', () => {
+  it('reads q from the query string', () => {
+    expect(parseRoute('/', '?q=dog')).toEqual({ name: 'grid', q: 'dog' })
+  })
+
+  it('drops an empty or blank q', () => {
+    // The API rejects a request with no query and no filter, so "/?q="
+    // would be a URL that always errors. It is the collection instead.
+    expect(parseRoute('/', '?q=')).toEqual({ name: 'grid' })
+    expect(parseRoute('/', '?q=%20%20')).toEqual({ name: 'grid' })
+  })
+
+  it('trims surrounding space', () => {
+    expect(parseRoute('/', '?q=%20dog%20')).toEqual({ name: 'grid', q: 'dog' })
+  })
+
+  it('composes with the person and event filters', () => {
+    // The API takes all three together and applies the filters before
+    // scoring, so the route has to be able to carry all three at once.
+    expect(parseRoute('/', '?person=Ada&event=picnic&q=dog')).toEqual({
+      name: 'grid',
+      person: 'Ada',
+      event: 'picnic',
+      q: 'dog',
+    })
+  })
+
+  it('round-trips through pathFor', () => {
+    const route = {
+      name: 'grid',
+      person: 'Ada Fixture',
+      q: 'a red car',
+    } as const
+
+    const [pathname, search] = pathFor(route).split('?')
+
+    expect(parseRoute(pathname, search)).toEqual(route)
+  })
+
+  it('leaves the plain collection without a query string', () => {
+    expect(pathFor({ name: 'grid' })).toBe('/')
+  })
+})

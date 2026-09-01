@@ -8,6 +8,7 @@ import {
   type ImageRecord,
 } from './api'
 import { navigate } from './router'
+import { recallResult } from './searchMemory'
 
 /**
  * One photograph, at its own URL.
@@ -135,15 +136,78 @@ function Diagnostics({ detail }: { detail: ImageDetail }) {
               : 'none'}
           </dd>
 
-          <dt>retrieval</dt>
-          <dd className="absent">
-            image_rank, caption_rank, score_kind and term hits are
-            properties of a search result. This page was not reached from
-            one, so there are none to show.
-          </dd>
+          <Retrieval sha={detail.sha256} />
         </dl>
       )}
     </section>
+  )
+}
+
+/** A rank the other modality did not produce is absent, not zero. */
+function rank(value: number | null): string {
+  return value === null ? 'not ranked' : `#${value}`
+}
+
+/**
+ * What the search that led here knew about this photograph.
+ *
+ * Absent when there was no such search - a deep link, a reload, or a
+ * click from the unfiltered grid. That case keeps its original wording
+ * rather than showing zeroes, because a rank of none and a rank of
+ * nothing-was-asked are different facts and only one of them is true.
+ */
+function Retrieval({ sha }: { sha: string }) {
+  const context = recallResult(sha)
+
+  if (!context) {
+    return (
+      <>
+        <dt>retrieval</dt>
+        <dd className="absent">
+          image_rank, caption_rank, score_kind and term hits are
+          properties of a search result. This page was not reached from
+          one, so there are none to show.
+        </dd>
+      </>
+    )
+  }
+
+  const { query, scoreKind, totalTerms, result } = context
+
+  return (
+    <>
+      <dt>from search</dt>
+      <dd>
+        <span className="query">{query}</span>
+        {result.matched ? ' · term match' : ' · not a term match'}
+      </dd>
+
+      <dt>rank</dt>
+      <dd>{result.rank}</dd>
+
+      <dt>image_rank</dt>
+      <dd>{rank(result.image_rank)}</dd>
+
+      <dt>caption_rank</dt>
+      <dd>{rank(result.caption_rank)}</dd>
+
+      <dt>term hits</dt>
+      <dd>
+        {result.term_hits} of {totalTerms}
+        {totalTerms === 1 ? ' term' : ' terms'}
+      </dd>
+
+      <dt>score</dt>
+      <dd>
+        {result.score.toFixed(4)}
+        {/*
+          * The scale is named because the three are an order of
+          * magnitude apart and nothing in the number says which it is:
+          * an RRF sum sits near 0.03 where a BGE cosine sits near 0.7.
+          */}
+        <span className="aside"> · {scoreKind}</span>
+      </dd>
+    </>
   )
 }
 

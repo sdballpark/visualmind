@@ -89,14 +89,75 @@ export interface ImageDetail extends ImageRecord {
   duplicates: DuplicateGroup | null
 }
 
+/**
+ * One result, with what retrieval knows about why it is here.
+ *
+ * The ranks are per-modality and either can be null: an image the
+ * caption index ranked may not appear in the image ranking at all. They
+ * are what the item page's diagnostics panel shows when a photograph is
+ * reached from a search.
+ */
+export interface SearchResult extends ImageRecord {
+  rank: number
+  score: number
+  image_rank: number | null
+  caption_rank: number | null
+  term_hits: number
+  matched: boolean
+}
+
 export interface SearchResponse {
-  results: ImageRecord[]
+  results: SearchResult[]
+  /**
+   * The system's own sentence for what it did and why. Rendered, never
+   * recomposed - retrieval decides the wording, and a second sentence
+   * written here would be a second voice able to disagree with it.
+   */
   basis: string
   score_kind: string
+  /**
+   * No caption mentions the terms and neither score curve flattened, so
+   * the results are nearest neighbours rather than matches. The basis
+   * already says the results came from the gradient; this is the
+   * separate claim that even the gradient found no edge to cut on.
+   */
+  low_confidence: boolean
+  total_terms: number
+  full_count: number
+  partial_count: number
   people: string[]
   events: string[]
   pool_size: number
   corpus_size: number
+}
+
+function searchParams(
+  query: string,
+  filter: { person?: string; event?: string },
+): URLSearchParams {
+  const params = new URLSearchParams({ q: query })
+
+  if (filter.person) {
+    params.set('person', filter.person)
+  }
+
+  if (filter.event) {
+    params.set('event', filter.event)
+  }
+
+  return params
+}
+
+async function getSearch(params: URLSearchParams): Promise<SearchResponse> {
+  const response = await fetch(`/search?${params}`)
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}))
+
+    throw new Error(body.detail ?? `/search responded ${response.status}`)
+  }
+
+  return response.json()
 }
 
 /**
@@ -109,25 +170,21 @@ export interface SearchResponse {
 export async function fetchFiltered(
   filter: { person?: string; event?: string },
 ): Promise<SearchResponse> {
-  const params = new URLSearchParams({ q: '' })
+  return getSearch(searchParams('', filter))
+}
 
-  if (filter.person) {
-    params.set('person', filter.person)
-  }
-
-  if (filter.event) {
-    params.set('event', filter.event)
-  }
-
-  const response = await fetch(`/search?${params}`)
-
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}))
-
-    throw new Error(body.detail ?? `/search responded ${response.status}`)
-  }
-
-  return response.json()
+/**
+ * A text query, narrowed by whatever filters the route carries.
+ *
+ * Query and filters go in one request because the API composes them -
+ * the people and event filters are applied before scoring, so searching
+ * within a filter is not the same as filtering a search.
+ */
+export async function fetchSearch(
+  query: string,
+  filter: { person?: string; event?: string },
+): Promise<SearchResponse> {
+  return getSearch(searchParams(query, filter))
 }
 
 export async function fetchImage(sha256: string): Promise<ImageDetail> {
