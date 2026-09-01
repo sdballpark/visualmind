@@ -18,6 +18,7 @@ from pathlib import Path
 from PIL import Image
 
 from visualmind import events, people, retrieval
+from visualmind.text import counted
 
 OUTPUT_ROOT = Path("outputs/search")
 THUMBNAIL = (420, 420)
@@ -92,12 +93,14 @@ def filter_block(outcome):
     for name in outcome["people"]:
         rows += ('<div><span class="kind">person</span>'
                  + html.escape(name) + " - "
-                 + str(outcome["person_counts"][name]) + " images</div>")
+                 + counted(outcome["person_counts"][name], "image")
+                 + "</div>")
 
     for name in outcome["events"]:
         rows += ('<div><span class="kind">event</span>'
                  + html.escape(name) + " - "
-                 + str(outcome["event_counts"][name]) + " images</div>")
+                 + counted(outcome["event_counts"][name], "image")
+                 + "</div>")
 
     caveat = ""
 
@@ -109,7 +112,7 @@ def filter_block(outcome):
     return (
         '<div class="filter"><strong>Filter - searching '
         + str(outcome["pool_size"]) + " of "
-        + str(outcome["corpus_size"]) + " images</strong>"
+        + counted(outcome["corpus_size"], "image") + "</strong>"
         + rows + caveat + "</div>"
     )
 
@@ -332,7 +335,7 @@ def main():
 
     if outcome["people"] or outcome["events"]:
         print("Pool:     " + str(outcome["pool_size"]) + " of "
-              + str(outcome["corpus_size"]) + " images")
+              + counted(outcome["corpus_size"], "image"))
 
     print("Returned: " + str(len(outcome["results"]))
           + "  (" + outcome["basis"] + ")")

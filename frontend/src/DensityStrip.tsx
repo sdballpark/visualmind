@@ -1,6 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { PaletteMark } from './api'
 import { colorFor, mutedColorFor } from './palette'
+import { counted } from './plural'
 
 /**
  * Every photograph in the collection, as one band.
@@ -174,10 +175,10 @@ export function DensityStrip({
   )
 
   const label = highlight
-    ? `${marks.length} photographs, ${layout.litCount} in the current ` +
-      'results, shown by capture time'
-    : `${marks.length} photographs, ${layout.datedCount} placed by ` +
-      `capture time and ${layout.undatedCount} undated`
+    ? `${counted(marks.length, 'photograph')}, ${layout.litCount} in the ` +
+      'current results, shown by capture time'
+    : `${counted(marks.length, 'photograph')}, ${layout.datedCount} ` +
+      `placed by capture time and ${layout.undatedCount} undated`
 
   return (
     <div className="strip" ref={ref}>

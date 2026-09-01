@@ -3,6 +3,7 @@ import { fetchPalette, type PaletteResponse } from './api'
 import { DensityStrip } from './DensityStrip'
 import { PhotoGrid } from './PhotoGrid'
 import { PhotoPage } from './PhotoPage'
+import { counted } from './plural'
 import { navigate, pathFor, useRoute } from './router'
 import { useCollection } from './useCollection'
 
@@ -107,14 +108,14 @@ function Collection({
                 navigate('/')
               }}
             >
-              all {palette ? palette.total : ''} photographs
+              all {palette ? counted(palette.total, 'photograph') : ''}
             </a>
           </p>
         ) : (
           palette &&
           !q && (
             <p>
-              {palette.total} photographs — the whole collection
+              {counted(palette.total, 'photograph')} — the whole collection
             </p>
           )
         )}
@@ -155,7 +156,8 @@ function Collection({
             * of the whole collection that never happened.
             */}
           <p className="count">
-            {outcome.results.length} of {outcome.pool_size} photographs
+            {outcome.results.length} of{' '}
+            {counted(outcome.pool_size, 'photograph')}
           </p>
           <p className="line">{outcome.basis}</p>
 

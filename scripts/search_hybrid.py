@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from visualmind import events, people, retrieval
+from visualmind.text import counted, plural
 
 
 def list_people():
@@ -184,15 +185,17 @@ def main():
 
         for name in outcome["people"]:
             print("  person  " + name.ljust(30)
-                  + str(outcome["person_counts"][name]).rjust(4) + " images")
+                  + str(outcome["person_counts"][name]).rjust(4) + " "
+                  + plural(outcome["person_counts"][name], "image"))
 
         for name in outcome["events"]:
             print("  event   " + name[:30].ljust(30)
-                  + str(outcome["event_counts"][name]).rjust(4) + " images")
+                  + str(outcome["event_counts"][name]).rjust(4) + " "
+                  + plural(outcome["event_counts"][name], "image"))
 
         print()
         print("  Searching " + str(outcome["pool_size"]) + " of "
-              + str(outcome["corpus_size"]) + " images")
+              + counted(outcome["corpus_size"], "image"))
 
         if outcome["people"]:
             print()

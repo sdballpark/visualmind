@@ -7,6 +7,7 @@ import {
   type ImageDetail,
   type ImageRecord,
 } from './api'
+import { counted } from './plural'
 import { navigate } from './router'
 import { recallResult } from './searchMemory'
 
@@ -61,7 +62,7 @@ function Related({ detail }: { detail: ImageDetail }) {
             {event.name}
             <span className="aside">
               {event.start ? ` · ${event.start.slice(0, 10)}` : ''}
-              {` · ${event.images} images`}
+              {` · ${counted(event.images, 'image')}`}
             </span>
           </a>
         ) : (

@@ -30,6 +30,8 @@ import numpy as np
 from PIL import Image
 from sklearn.cluster import DBSCAN
 
+from visualmind.text import counted, plural
+
 INDEX_DIR = Path("indexes")
 EMBEDDINGS_PATH = INDEX_DIR / "face_embeddings.npy"
 LOOKUP_PATH = INDEX_DIR / "face_lookup.csv"
@@ -191,7 +193,8 @@ def main():
                         + " (median " + str(int(np.median(ages))) + ")")
 
         print(name_of[label].ljust(14) + str(len(group)).rjust(4)
-              + " faces in " + str(images).rjust(3) + " images"
+              + " " + plural(len(group), "face") + " in "
+              + str(images).rjust(3) + " " + plural(images, "image")
               + "  " + dominant + age_note)
 
     if not args.no_html:
@@ -232,8 +235,8 @@ def main():
             blocks.append(
                 '<div class="' + css + '">'
                 + "<h2>" + html.escape(name_of[label]) + "</h2>"
-                + '<div class="stats">' + str(len(group)) + " faces in "
-                + str(images) + " images" + extra + "</div>"
+                + '<div class="stats">' + counted(len(group), "face")
+                + " in " + counted(images, "image") + extra + "</div>"
                 + '<div class="faces">' + crops + "</div></div>"
             )
 
