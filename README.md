@@ -183,6 +183,37 @@ it. `core.hooksPath` opts in explicitly by pointing Git at the tracked
 clone needs this command again, and a contributor who skips it gets no
 hook and no warning that it is missing.
 
+## The interface
+
+These screenshots show a synthetic demo set - drawn images, written
+captions, invented people - and not the family archive. The interface,
+the layout and the search behaviour are real; every photograph in the
+corpus this was built against is private, so none of it appears here.
+
+![The collection](docs/screenshots/01-collection.png)
+The whole collection: a density strip over capture time above a justified
+grid that keeps every image's aspect ratio.
+
+![A term match](docs/screenshots/02-term-match.png)
+A term match, headed by the system's own account of why these results,
+with the strip dimming everything outside them.
+
+![The gradient fallback](docs/screenshots/03-gradient.png)
+No caption mentions the query, so the results come from the score
+gradient and the headline says so instead of calling them matches.
+
+![An item page](docs/screenshots/04-item-page.png)
+One photograph at its own URL, with the people, the event and the
+near-duplicates as links out.
+
+![A filtered grid](docs/screenshots/05-filtered.png)
+A person filter, where the strip still draws all 60 because a filter
+changes what is shown and not what exists.
+
+![The diagnostics panel](docs/screenshots/06-diagnostics.png)
+Diagnostics for a photograph reached from a search, ranked first on
+captions and third on the image index.
+
 ## Pipeline
 
     scripts/inspect_archive.py           validate the source archive

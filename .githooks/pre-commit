@@ -13,7 +13,21 @@ set -euo pipefail
 
 BLOCKED='(^|/)(captions\.csv|caption_lookup\.csv|siglip2_lookup\.csv|dinov2_lookup\.csv|face_lookup\.csv|person_labels\.json|duplicate_groups\.csv|image_catalog\.csv)$|\.npy$|(^|/)(indexes|outputs|thumbnails)/|\.(jpe?g|png|gif|tiff?|heic|webp|bmp)$'
 
-ALLOWED='(^|/)person_labels\.example\.json$|(^|/)docs/'
+# Exceptions, narrowest first.
+#
+# docs/screenshots/ holds the README images. They are the only pictures
+# in this repository, and they are safe for one reason: they show a
+# synthetic demo corpus - drawn images, written captions, invented
+# people - and not one frame of the archive. That is the whole basis of
+# the exception, so it is spelled out here rather than inferred.
+#
+# The rule used to be a bare `docs/`, which skipped the block check for
+# anything under it. A private photograph dropped into docs/ committed
+# silently. Documents are still exempt, but only as text: an image is
+# exempt only at the one path that is meant to hold one.
+ALLOWED='(^|/)person_labels\.example\.json$'
+ALLOWED+='|^docs/screenshots/[^/]+\.png$'
+ALLOWED+='|(^|/)docs/.*\.(md|txt)$'
 
 staged=$(git diff --cached --name-only --diff-filter=AM)
 
