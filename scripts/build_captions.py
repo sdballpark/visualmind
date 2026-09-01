@@ -44,7 +44,21 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--limit", type=int, default=0,
                         help="Caption at most N images (0 = all).")
-    parser.add_argument("--max-new-tokens", type=int, default=100)
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-caption everything, discarding the existing file.",
+    )
+    parser.add_argument(
+        "--max-new-tokens",
+        type=int,
+        default=320,
+        help=(
+            "Ceiling, not a target: greedy decoding stops at EOS, so "
+            "this only ever truncates. At 100 it truncated a quarter of "
+            "this corpus mid-sentence."
+        ),
+    )
     parser.add_argument(
         "--max-pixels",
         type=int,
@@ -64,7 +78,7 @@ def main() -> int:
     with CATALOG.open("r", encoding="utf-8", newline="") as handle:
         rows = list(csv.DictReader(handle))
 
-    done = load_done()
+    done = set() if args.force else load_done()
     todo = [r for r in rows if r["source_path"] not in done]
 
     if args.limit:
@@ -95,12 +109,14 @@ def main() -> int:
     ).eval()
 
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    write_header = not OUTPUT.exists()
+    write_header = args.force or not OUTPUT.exists()
 
     started = time.time()
     failures = 0
 
-    with OUTPUT.open("a", encoding="utf-8", newline="") as handle:
+    with OUTPUT.open(
+        "w" if args.force else "a", encoding="utf-8", newline=""
+    ) as handle:
         writer = csv.DictWriter(handle, fieldnames=FIELDNAMES)
 
         if write_header:
