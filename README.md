@@ -200,6 +200,7 @@ hook and no warning that it is missing.
     scripts/search_hybrid.py             console search
     scripts/search_gallery.py            HTML gallery
     scripts/status.py                    staleness check
+    scripts/check_retrieval.py           eval query regression check
 
 Shared logic lives in `src/visualmind/` - `retrieval.py` for search,
 `people.py` and `events.py` for filter resolution - so the two search entry

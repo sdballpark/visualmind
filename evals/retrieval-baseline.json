@@ -1,0 +1,185 @@
+{
+  "note": "Counts and filenames for the queries published in evals/retrieval-evaluation.md. Regenerate with scripts/check_retrieval.py --update, deliberately.",
+  "queries": {
+    "a red car": {
+      "count": 3,
+      "filenames": [
+        "20240615_090444.jpg",
+        "dc5f78e1-d117-4f20-9c00-d6c69bce357b.png",
+        "image_5.png"
+      ]
+    },
+    "beach": {
+      "count": 20,
+      "filenames": [
+        "20160520_125548.jpg",
+        "20241017_161932.jpg",
+        "20241018_181905.jpg",
+        "20241018_182114.jpg",
+        "20251010_182350.jpg",
+        "3.jpg",
+        "DSC_3099.JPG",
+        "DSC_6360.JPG",
+        "DSC_7295.JPG",
+        "DSC_8169.JPG",
+        "Mandy456.jpg",
+        "PXL_20221202_033839360.jpg",
+        "SD Beach 7-2004b.JPG",
+        "SD Beach 7-2004e.JPG",
+        "SD Beach 7-2004e.JPG",
+        "SD Beach 7-2004g.JPG",
+        "image.png",
+        "image.png",
+        "image000000(6).jpg",
+        "second.jpg"
+      ]
+    },
+    "birthday cake": {
+      "count": 16,
+      "filenames": [
+        "Carina1.jpg",
+        "Carina2.jpg",
+        "DSC01194.JPG",
+        "DSC_8146.JPG",
+        "HappyBDAYAlicia.jpg",
+        "HappyBDAYAliciaXMAS.jpg",
+        "HappyBDayLisa.png",
+        "LisaBDay.jpg",
+        "Mandy123.jpg",
+        "ManviBdayCake.jpg",
+        "YosemiteKathy70thBirthday.png",
+        "image.png",
+        "image.png",
+        "image.png",
+        "image_2.png",
+        "image_2.png"
+      ]
+    },
+    "cat": {
+      "count": 2,
+      "filenames": [
+        "2016 DSC_7427.JPG",
+        "DCP_3034.JPG"
+      ]
+    },
+    "christmas tree": {
+      "count": 4,
+      "filenames": [
+        "20241213_195155.jpg",
+        "DCP_1182.JPGbrighter.jpg",
+        "HappyBDAYAlicia.jpg",
+        "HappyBDAYAliciaXMAS.jpg"
+      ]
+    },
+    "dog": {
+      "count": 20,
+      "filenames": [
+        "15.JPG",
+        "1995154.jpg",
+        "20240330_111155a.jpg",
+        "20241013_134239.jpg",
+        "20241013_151744.jpg",
+        "DCP_1182.JPGbrighter.jpg",
+        "DSC03574.JPG",
+        "P , B, & A!!!.JPG",
+        "ThanksGiving 004.jpg",
+        "TomKathParty 014.jpg",
+        "TomKathParty 014.jpg",
+        "Whisk_gif_ti0ymyxnje.gif",
+        "eabab997-507a-42b6-a4af-09bc4d0fd874.jpg",
+        "image.png",
+        "image000001(1).jpg",
+        "image_2.png",
+        "image_3.png",
+        "image_4.png",
+        "image_5.png",
+        "unnamed.jpg"
+      ]
+    },
+    "people wearing sunglasses": {
+      "count": 30,
+      "filenames": [
+        "1993_072.jpg",
+        "2 DCP_2902.JPG",
+        "2.jpg",
+        "20240211_164651.jpg",
+        "20241018_130311.jpg",
+        "20250516_124932.jpg",
+        "20250516_130926.jpg",
+        "600_1515.JPG",
+        "600_1519.JPG",
+        "Carpinteria 004.jpg",
+        "DCP_2682.JPG",
+        "DSC03573.JPG",
+        "DSC_3650.JPG",
+        "DSC_3713.JPG",
+        "DSC_4213a.jpg",
+        "DSC_4226.JPG",
+        "DSC_4277.JPG",
+        "DSC_6134 b.jpg",
+        "DSC_8169.JPG",
+        "Eva s Funeral 019.jpg",
+        "First.jpg",
+        "P9080091_2.jpg",
+        "PXL_20221203_012600369.jpg",
+        "SD Beach 7-2004e.JPG",
+        "andrew and liam.jpg",
+        "ice station 7-21-04.JPG",
+        "image.png",
+        "image.png",
+        "image000002.jpg",
+        "image_4.png"
+      ]
+    },
+    "someone holding a baby": {
+      "count": 18,
+      "filenames": [
+        "20231004_180516.jpg",
+        "20241018_130311.jpg",
+        "Bogan family scan2_1.tif",
+        "Colin U-Chuck 7-3-04.JPG",
+        "DCP_1987.JPG",
+        "DCP_2135.JPG",
+        "DCP_2142.JPG",
+        "DCP_2366.JPG",
+        "DCP_2370.JPG",
+        "DCP_3279.JPG",
+        "DSC05404.JPG",
+        "IMG_2179.jpg",
+        "IMG_3407.jpg",
+        "LisaJer4.jpg",
+        "image (1).png",
+        "image (2).png",
+        "image_5.png",
+        "image_6.png"
+      ]
+    },
+    "swimming pool": {
+      "count": 6,
+      "filenames": [
+        "DCP_2375.JPG",
+        "DCP_2648.JPG",
+        "DCP_2664.JPG",
+        "DSC01744.JPG",
+        "IMG_0255.JPG",
+        "aa1462d5-3036-4364-9502-518c2970aa8b.jpg"
+      ]
+    },
+    "wedding": {
+      "count": 11,
+      "filenames": [
+        "1.JPG",
+        "101MSD-DSC01564_DSC01564.JPG",
+        "101MSD-DSC01572_DSC01572.JPG",
+        "101MSD-DSC01581_DSC01581.JPG",
+        "101MSD-DSC01588_DSC01588.JPG",
+        "101MSD-DSC01594_DSC01594.JPG",
+        "Bogan family scan2_1.tif",
+        "Bogan family.jpg",
+        "DCP_3026.JPG",
+        "KathyandSter_50.png",
+        "WEDDING-LIZRACHELPHOTO-398.jpg"
+      ]
+    }
+  }
+}
