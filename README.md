@@ -201,6 +201,7 @@ hook and no warning that it is missing.
     scripts/search_hybrid.py             console search
     scripts/search_gallery.py            HTML gallery
     scripts/status.py                    staleness check
+    scripts/serve.py                     read-only API (127.0.0.1)
     scripts/check_retrieval.py           eval query regression check
 
 Shared logic lives in `src/visualmind/` - `retrieval.py` for search,
