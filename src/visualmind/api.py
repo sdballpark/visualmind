@@ -222,6 +222,7 @@ def search_payload(library, outcome):
         "results": results,
         "score_kind": outcome["score_kind"],
         "basis": outcome["basis"],
+        "basis_kind": outcome["basis_kind"],
         "low_confidence": outcome["low_confidence"],
         "total_terms": outcome["total_terms"],
         "full_count": outcome["full_count"],

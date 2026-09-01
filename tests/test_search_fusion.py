@@ -99,7 +99,7 @@ def test_image_mode_orders_a_matched_set_by_image_score(fake_corpus):
 
     outcome = retrieval.search("zebra", mode="image")
 
-    assert outcome["basis"].startswith("full caption match")
+    assert "mentions the query term" in outcome["basis"]
     assert order(outcome) == ["m4", "m3", "m2", "m1"]
 
 
@@ -173,7 +173,7 @@ def test_tied_matched_set_breaks_by_path(fake_corpus):
 
     outcome = retrieval.search("zebra")
 
-    assert outcome["basis"].startswith("full caption match")
+    assert "mentions the query term" in outcome["basis"]
     assert order(outcome) == sorted(EQUAL)
 
 
@@ -195,7 +195,7 @@ def test_full_match_in_hybrid_reports_a_caption_cosine(fake_corpus):
 
     outcome = retrieval.search("zebra")
 
-    assert outcome["basis"].startswith("full caption match")
+    assert "mentions the query term" in outcome["basis"]
     assert outcome["score_kind"] == retrieval.SCORE_CAPTION
     assert dict(outcome["results"])["m1"] == MATCHED_CAPTION["m1"]
 
@@ -215,7 +215,7 @@ def test_full_match_under_image_mode_reports_an_image_cosine(fake_corpus):
 
     outcome = retrieval.search("zebra", mode="image")
 
-    assert outcome["basis"].startswith("full caption match")
+    assert "mentions the query term" in outcome["basis"]
     assert outcome["score_kind"] == retrieval.SCORE_IMAGE
     assert dict(outcome["results"])["m1"] == MATCHED_IMAGE["m1"]
 
@@ -230,7 +230,7 @@ def test_top_k_reports_a_fused_sum(fake_corpus):
 
     outcome = retrieval.search("zebra", top_k=3)
 
-    assert outcome["basis"].startswith("fixed count")
+    assert "fixed number of results" in outcome["basis"]
     assert outcome["score_kind"] == retrieval.SCORE_FUSED
 
     # An RRF sum of two 1/(60+rank) terms cannot reach a cosine's range.
@@ -243,7 +243,7 @@ def test_gradient_fallback_reports_a_fused_sum(fake_corpus):
 
     outcome = retrieval.search("zebra")
 
-    assert outcome["basis"].startswith("score gradient")
+    assert "similarity gradient" in outcome["basis"]
     assert outcome["score_kind"] == retrieval.SCORE_FUSED
 
 
@@ -260,3 +260,128 @@ def test_filter_only_query_reports_no_scale(fake_corpus):
 
     assert outcome["score_kind"] == retrieval.SCORE_NONE
     assert all(score == 0.0 for _, score in outcome["results"])
+
+
+def test_the_basis_is_grammatical_for_a_single_term(fake_corpus):
+    """The one-term case is the common one, and it used to read badly.
+
+    "full caption match - 4 of 4 captions contain all 1 term" was written
+    for a console, where the numbers read as precision. The frontend sets
+    this string as its headline, where "all 1 term" reads as unfinished.
+    """
+    fake_corpus(
+        MATCHED_CORPUS,
+        image=MATCHED_IMAGE,
+        caption=MATCHED_CAPTION,
+        captions=MATCHED_CAPTIONS,
+    )
+
+    basis = retrieval.search("zebra")["basis"]
+
+    assert basis == "Every caption here mentions the query term."
+    assert "all 1" not in basis
+
+
+def test_the_basis_counts_terms_when_there_is_more_than_one(fake_corpus):
+    """Two terms take the plural branch, so the number is worth printing."""
+    fake_corpus(
+        MATCHED_CORPUS,
+        image=MATCHED_IMAGE,
+        caption=MATCHED_CAPTION,
+        captions=MATCHED_CAPTIONS,
+    )
+
+    basis = retrieval.search("zebra here")["basis"]
+
+    assert basis == "Every caption here mentions all 2 query terms."
+
+
+def test_no_basis_carries_the_result_count(fake_corpus):
+    """The count is printed by every consumer separately.
+
+    search_hybrid.py has its own returning line, the gallery prints one,
+    and the frontend sets one above the headline. A count inside the
+    sentence is a second copy that can disagree with all three.
+    """
+    fake_corpus(
+        MATCHED_CORPUS,
+        image=MATCHED_IMAGE,
+        caption=MATCHED_CAPTION,
+        captions=MATCHED_CAPTIONS,
+    )
+
+    basis = retrieval.search("zebra")["basis"]
+
+    assert str(len(MATCHED_CORPUS)) not in basis
+    assert "4 of" not in basis
+
+
+def test_every_basis_reads_as_a_sentence(fake_corpus):
+    """One voice, rendered at 30px by one of the three consumers."""
+    fake_corpus(
+        MATCHED_CORPUS,
+        image=MATCHED_IMAGE,
+        caption=MATCHED_CAPTION,
+        captions=MATCHED_CAPTIONS,
+    )
+
+    for outcome in (
+        retrieval.search("zebra"),
+        retrieval.search("zebra", top_k=3),
+        retrieval.search("nothing here mentions this"),
+    ):
+        basis = outcome["basis"]
+
+        assert basis[0].isupper(), basis
+        assert basis.endswith("."), basis
+        # The hyphen was doing a colon's work in every branch.
+        assert " - " not in basis, basis
+
+
+def test_each_branch_reports_its_own_identifier(fake_corpus):
+    """basis_kind is assigned beside basis, so the two cannot disagree.
+
+    A sentence saying one thing while the token says another would be
+    worse than having no token: consumers would split, some reading the
+    prose and some the identifier.
+    """
+    fake_corpus(
+        MATCHED_CORPUS,
+        image=MATCHED_IMAGE,
+        caption=MATCHED_CAPTION,
+        captions=MATCHED_CAPTIONS,
+    )
+
+    full = retrieval.search("zebra")
+    assert full["basis_kind"] == retrieval.BASIS_FULL
+    assert "mentions the query term" in full["basis"]
+
+    cut = retrieval.search("zebra", top_k=3)
+    assert cut["basis_kind"] == retrieval.BASIS_TOP_K
+    assert "fixed number of results" in cut["basis"]
+
+    fallback = retrieval.search("nothing here mentions this")
+    assert fallback["basis_kind"] == retrieval.BASIS_GRADIENT
+    assert "similarity gradient" in fallback["basis"]
+
+    nothing = retrieval.search("")
+    assert nothing["basis_kind"] == retrieval.BASIS_NO_QUERY
+    assert "Nothing was asked for" in nothing["basis"]
+
+
+def test_every_outcome_carries_a_known_kind(fake_corpus):
+    """Including the empty-result path, which returns from elsewhere."""
+    fake_corpus(
+        MATCHED_CORPUS,
+        image=MATCHED_IMAGE,
+        caption=MATCHED_CAPTION,
+        captions=MATCHED_CAPTIONS,
+    )
+
+    for outcome in (
+        retrieval.search("zebra"),
+        retrieval.search("zebra", top_k=3),
+        retrieval.search("nothing here mentions this"),
+        retrieval.search(""),
+    ):
+        assert outcome["basis_kind"] in retrieval.BASIS_KINDS

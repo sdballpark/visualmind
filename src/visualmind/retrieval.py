@@ -35,6 +35,13 @@ RRF sum. `score_kind` in the outcome names which of those a caller is
 holding, since the scales are an order of magnitude apart and nothing
 in the value itself distinguishes them.
 
+`basis` and `basis_kind` are the same pairing for the explanation. The
+first is the sentence a reader sees; the second is the branch that
+produced it, as a token. Consumers that need to behave differently per
+branch - colouring, or a warning - read the token, so the sentence stays
+free to be rewritten. Reading the prose was how it worked once, and the
+prose changed.
+
 An embedding matrix and its lookup are matched by row position and
 nothing else, so both are verified against a manifest fingerprint before
 a query runs. See verify_index.
@@ -95,6 +102,34 @@ SCORE_CAPTION = "caption_cosine"
 SCORE_IMAGE = "image_cosine"
 SCORE_FUSED = "rrf_sum"
 SCORE_NONE = "none"
+
+# Which branch produced the results. `basis` says it in prose for a
+# reader; this says the same thing in a token a consumer can branch on,
+# and sits beside basis the way score_kind sits beside the score.
+#
+# It exists because search_gallery.py used to pick its colour with
+# `"gradient" in outcome["basis"]`. That worked only while the sentence
+# happened to contain the word, so rewording the prose could silently
+# un-colour the case with no test failing. Named for the mechanism
+# rather than the wording, so the sentence can be rewritten freely and
+# the identifier cannot follow it.
+BASIS_FULL = "full_match"
+BASIS_PARTIAL = "partial_match"
+BASIS_TOP_K = "top_k"
+BASIS_GRADIENT = "gradient"
+BASIS_FILTER_ONLY = "filter_only"
+BASIS_NO_QUERY = "no_query"
+BASIS_EMPTY_POOL = "empty_pool"
+
+BASIS_KINDS = {
+    BASIS_FULL,
+    BASIS_PARTIAL,
+    BASIS_TOP_K,
+    BASIS_GRADIENT,
+    BASIS_FILTER_ONLY,
+    BASIS_NO_QUERY,
+    BASIS_EMPTY_POOL,
+}
 
 STOPWORDS = {
     "a", "an", "the", "of", "in", "on", "at", "with", "and", "or",
@@ -463,7 +498,7 @@ def combine_filters(persons, event_names):
             resolved_events, event_counts)
 
 
-def empty_result(cap_lookup, allowed, basis, resolved_people,
+def empty_result(cap_lookup, allowed, basis, basis_kind, resolved_people,
                  person_counts, resolved_events, event_counts):
     order = [
         row["source_path"] for row in cap_lookup
@@ -474,6 +509,7 @@ def empty_result(cap_lookup, allowed, basis, resolved_people,
         "results": [(path, 0.0) for path in order],
         "score_kind": SCORE_NONE,
         "basis": basis,
+        "basis_kind": basis_kind,
         "matched": set(),
         "hits": {},
         "trimmed": [],
@@ -524,12 +560,17 @@ def search(query, mode="hybrid", top_k=0, rrf_k=RRF_K,
             parts.append(" or ".join(resolved_events))
 
         if parts:
-            basis = "filter only - " + ", within ".join(parts)
+            basis_kind = BASIS_FILTER_ONLY
+            basis = ("There is no query text, so this is everything matching "
+                     + ", within ".join(parts) + ", in catalog order.")
         else:
-            basis = "no query and no filter"
+            basis_kind = BASIS_NO_QUERY
+            basis = ("Nothing was asked for, so this is the whole collection "
+                     "in catalog order.")
 
         return empty_result(
-            cap_lookup, allowed, basis, resolved_people, person_counts,
+            cap_lookup, allowed, basis, basis_kind,
+            resolved_people, person_counts,
             resolved_events, event_counts,
         )
 
@@ -614,12 +655,16 @@ def search(query, mode="hybrid", top_k=0, rrf_k=RRF_K,
 
     if not ordered:
         results = []
-        basis = "no images match the filter"
+        basis_kind = BASIS_EMPTY_POOL
+        basis = "Nothing matches this filter, so there was nothing to search."
         matched = set()
         score_kind = SCORE_NONE
     elif top_k:
         results = ordered[:top_k]
-        basis = "fixed count (--top-k " + str(top_k) + ")"
+        basis_kind = BASIS_TOP_K
+        basis = ("A fixed number of results was asked for, so the ranking "
+                 "was cut at that number rather than where the evidence "
+                 "ran out.")
         matched = set()
         score_kind = SCORE_FUSED
     elif full:
@@ -629,10 +674,13 @@ def search(query, mode="hybrid", top_k=0, rrf_k=RRF_K,
         results = [(p, match_score[p]) for p in kept]
         matched = full
         score_kind = match_kind
-        basis = ("full caption match - " + str(len(full)) + " of "
-                 + str(pool) + " captions contain all "
-                 + str(total_terms)
-                 + (" term" if total_terms == 1 else " terms"))
+        basis_kind = BASIS_FULL
+        basis = (
+            "Every caption here mentions the query term."
+            if total_terms == 1 else
+            "Every caption here mentions all " + str(total_terms)
+            + " query terms."
+        )
     elif partial:
         kept, trimmed = semantic_order(
             list(partial), match_score, semantic_drop, trim
@@ -640,22 +688,33 @@ def search(query, mode="hybrid", top_k=0, rrf_k=RRF_K,
         results = [(p, match_score[p]) for p in kept]
         matched = partial
         score_kind = match_kind
-        basis = ("partial caption match - at least " + str(threshold)
-                 + " of " + str(total_terms) + " terms")
+        basis_kind = BASIS_PARTIAL
+        basis = ("No caption mentions every query term, so these are the "
+                 "captions mentioning at least " + str(threshold) + " of "
+                 + str(total_terms) + ".")
     else:
         results = ordered[:max(img_cut, cap_cut)]
-        basis = "score gradient - no caption mentions these terms"
+        basis_kind = BASIS_GRADIENT
+        basis = ("No caption mentions these terms, so these are the closest "
+                 "images by score, cut where the similarity gradient "
+                 "flattens.")
         matched = set()
         score_kind = SCORE_FUSED
         low_confidence = not (img_found or cap_found)
 
     if trimmed:
-        basis += ", " + str(len(trimmed)) + " trimmed by " + score_label
+        basis += (
+            " One further image was trimmed by " + score_label + "."
+            if len(trimmed) == 1 else
+            " " + str(len(trimmed)) + " further images were trimmed by "
+            + score_label + "."
+        )
 
     return {
         "results": results,
         "score_kind": score_kind,
         "basis": basis,
+        "basis_kind": basis_kind,
         "matched": matched,
         "hits": hits,
         "trimmed": trimmed,

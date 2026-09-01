@@ -144,11 +144,10 @@ function Collection({
         <div className="basis">
           {/*
             * The count sits in the quiet register, above the sentence,
-            * rather than being spliced into it. Leading with "20 of 441
-            * —" put the count twice in one line for a term match, whose
-            * basis already reads "20 of 441 captions contain all 1
-            * term", and set an em dash against the hyphen inside the
-            * API's own string.
+            * rather than being spliced into it. retrieval composes the
+            * sentence and deliberately leaves the count out of it,
+            * because all three consumers print their own; splicing one
+            * back in here would put it on the page twice.
             *
             * The denominator is the pool that was searched, not the
             * corpus. The two are the same 441 with no filter on; under

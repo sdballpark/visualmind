@@ -162,9 +162,13 @@ def render(query, outcome, mode, rrf_k):
 
     basis_class = "basis"
 
+    # basis_kind, not the sentence. This read `"gradient" in
+    # outcome["basis"]`, which held only while the prose happened to
+    # contain that word - rewording the explanation would have dropped
+    # the colour silently.
     if outcome["low_confidence"]:
         basis_class += " warn"
-    elif "gradient" in outcome["basis"]:
+    elif outcome["basis_kind"] == retrieval.BASIS_GRADIENT:
         basis_class += " gradient"
 
     note = ""

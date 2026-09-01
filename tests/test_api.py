@@ -79,7 +79,9 @@ def client(library_files, monkeypatch):
 
 def fake_search(**outcome):
     base = {
-        "results": [], "score_kind": "caption_cosine", "basis": "full",
+        "results": [], "score_kind": "caption_cosine",
+        "basis": "Every caption here mentions the query term.",
+        "basis_kind": "full_match",
         "matched": set(), "hits": {}, "trimmed": [], "total_terms": 1,
         "full_count": 0, "partial_count": 0, "img_cut": 2,
         "img_plateau": True, "cap_cut": 3, "cap_plateau": False,
@@ -106,9 +108,9 @@ def test_search_returns_the_outcome_fields_the_frontend_needs(
 
     body = client.get("/search", params={"q": "zebra"}).json()
 
-    for field in ("basis", "score_kind", "low_confidence", "img_cut",
-                  "cap_cut", "img_plateau", "cap_plateau", "image_rank",
-                  "caption_rank", "corpus_size", "pool_size"):
+    for field in ("basis", "basis_kind", "score_kind", "low_confidence",
+                  "img_cut", "cap_cut", "img_plateau", "cap_plateau",
+                  "image_rank", "caption_rank", "corpus_size", "pool_size"):
         assert field in body, field
 
 

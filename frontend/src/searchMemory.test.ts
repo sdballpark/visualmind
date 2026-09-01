@@ -31,7 +31,8 @@ function result(over: Partial<SearchResult>): SearchResult {
 function outcome(results: SearchResult[]): SearchResponse {
   return {
     results,
-    basis: 'full caption match - 1 of 441 captions contain all 1 term',
+    basis: 'Every caption here mentions the query term.',
+    basis_kind: 'full_match',
     score_kind: 'caption_cosine',
     low_confidence: false,
     total_terms: 1,

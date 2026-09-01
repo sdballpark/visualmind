@@ -114,6 +114,13 @@ export interface SearchResponse {
    * written here would be a second voice able to disagree with it.
    */
   basis: string
+  /**
+   * Which branch produced the results, as a stable token: one of
+   * full_match, partial_match, top_k, gradient, filter_only, no_query,
+   * empty_pool. Anything that needs to behave differently per branch
+   * reads this; `basis` is prose and is free to be rewritten.
+   */
+  basis_kind: string
   score_kind: string
   /**
    * No caption mentions the terms and neither score curve flattened, so
