@@ -73,20 +73,30 @@ COVERAGE = [
 
 # (artifact, manifest, source, the field the builder records it under).
 #
-# Two builders record what they built from, and only these two. The
-# field names differ because each manifest names its own source -
-# build_embeddings.py records catalog_sha256, build_caption_embeddings.py
-# records captions_sha256 - so the field is stated here rather than
-# guessed from a convention that holds for two files.
+# The three builders that record what they built from. The field names
+# differ because each manifest names its own source - the two catalog
+# indexes record catalog_sha256, build_caption_embeddings.py records
+# captions_sha256 - so the field is stated here rather than guessed from
+# a convention.
 #
-# Everything else has no manifest at all: the dinov2 index, the face
-# scan, thumbnails, the palette, and captions.csv itself. They are absent
-# from this table rather than given an invented manifest, so an artifact
+# Thumbnails and the palette are the deliberate omissions, and the
+# reason is not that the question does not apply. A drifted thumbnail is
+# a wrong picture, which announces itself to anyone looking at the grid,
+# and thumbnails are read on every page load, so a check that is wrong
+# in the cautious direction is a blank grid rather than a stale one. The
+# dinov2 index is the opposite on both counts: nothing about it is
+# visible until duplicate detection returns the wrong groups, and it is
+# read by a batch script rather than a page.
+#
+# The face scan and captions.csv have no manifest either. An artifact
 # with no recorded fingerprint keeps exactly the coverage answer it had
-# before. Adding one is a change to its builder, not to this file.
+# before; adding one is a change to its builder, not to this file.
 SOURCE_FINGERPRINTS = {
     "siglip2 index": (
         INDEX_DIR / "siglip2_index.json", CATALOG, "catalog_sha256",
+    ),
+    "dinov2 index": (
+        INDEX_DIR / "dinov2_index.json", CATALOG, "catalog_sha256",
     ),
     "caption index": (
         INDEX_DIR / "caption_index.json", CAPTIONS, "captions_sha256",

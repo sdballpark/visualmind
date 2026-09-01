@@ -4,10 +4,14 @@ DINOv2 has no text tower. This index answers image-to-image questions
 only - "which of these are the same photograph" - and is deliberately
 separate from the SigLIP2 index used for text search.
 
-Writes indexes/dinov2_embeddings.npy and indexes/dinov2_lookup.csv.
+Writes indexes/dinov2_embeddings.npy, indexes/dinov2_lookup.csv and
+indexes/dinov2_index.json.
 """
 import csv
+import hashlib
+import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -17,13 +21,26 @@ import yaml
 from PIL import Image
 from transformers import AutoImageProcessor, AutoModel
 
+from visualmind.retrieval import lookup_fingerprint
+
 CATALOG = Path("data/metadata/image_catalog.csv")
 MODEL_CONFIG = Path("configs/models.yaml")
 INDEX_DIR = Path("indexes")
 EMBEDDINGS_PATH = INDEX_DIR / "dinov2_embeddings.npy"
 LOOKUP_PATH = INDEX_DIR / "dinov2_lookup.csv"
+INDEX_INFO_PATH = INDEX_DIR / "dinov2_index.json"
 
 BATCH_SIZE = 32
+
+
+def sha256_file(path):
+    digest = hashlib.sha256()
+
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+
+    return digest.hexdigest()
 
 
 def load_model_config():
@@ -121,6 +138,32 @@ def main() -> int:
 
     norms = np.linalg.norm(matrix, axis=1)
 
+    index_info = {
+        "created_utc": datetime.now(timezone.utc).isoformat(),
+        "model_id": repo,
+        "revision": revision,
+        "catalog": str(CATALOG),
+        "catalog_sha256": sha256_file(CATALOG),
+        "image_count": int(matrix.shape[0]),
+        "embedding_dimension": int(matrix.shape[1]),
+        "dtype": str(matrix.dtype),
+        "minimum_l2_norm": float(norms.min()),
+        "maximum_l2_norm": float(norms.max()),
+
+        # Over `kept`, not `rows`. This builder skips an image it cannot
+        # open, so the lookup and the matrix hold only the images that
+        # survived - fingerprinting the catalog order instead would
+        # describe an index that was never written.
+        "lookup_fingerprint": lookup_fingerprint(
+            row["source_path"] for row in kept
+        ),
+    }
+
+    INDEX_INFO_PATH.write_text(
+        json.dumps(index_info, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
     print()
     print("-" * 76)
     print("VISUAL INDEX SUMMARY")
@@ -134,6 +177,7 @@ def main() -> int:
           + format(torch.cuda.max_memory_allocated() / 1e9, ".2f") + " GB")
     print("\nEmbeddings: " + str(EMBEDDINGS_PATH.resolve()))
     print("Lookup:     " + str(LOOKUP_PATH.resolve()))
+    print("Manifest:   " + str(INDEX_INFO_PATH.resolve()))
     print()
     print("=" * 76)
     print("VISUAL INDEX COMPLETE")

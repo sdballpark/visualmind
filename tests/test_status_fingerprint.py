@@ -146,26 +146,37 @@ def test_no_manifest_shape_can_raise(monkeypatch, tmp_path, body):
 
 
 def test_an_artifact_with_no_recorded_fingerprint_says_nothing():
-    """Most artifacts have no manifest, and that is not a failure.
+    """Some artifacts have no manifest, and that is not a failure.
 
     They keep exactly the coverage answer they had before this check
     existed.
     """
-    for artifact in ["captions", "dinov2 index", "face scan",
-                     "thumbnails", "palette"]:
+    for artifact in ["captions", "face scan", "thumbnails", "palette"]:
         assert status.source_state(artifact) == (None, False)
 
 
-def test_only_the_two_builders_that_record_a_source_are_listed():
+def test_only_the_builders_that_record_a_source_are_listed():
     """Stated, not invented.
 
-    build_embeddings.py and build_caption_embeddings.py write a source
-    sha into their manifest. No other builder writes a manifest at all,
-    so no other artifact can be checked this way until one does.
+    Three builders write a source sha into a manifest. An artifact
+    cannot be checked this way until its builder does.
     """
     assert set(status.SOURCE_FINGERPRINTS) == {
-        "siglip2 index", "caption index"
+        "siglip2 index", "dinov2 index", "caption index"
     }
+
+
+def test_thumbnails_and_palette_are_deliberately_absent():
+    """Not an oversight, and not the same trade.
+
+    A drifted thumbnail is a wrong picture, which is visible to anyone
+    looking at the grid, and thumbnails are read on every page load - so
+    a check erring cautious costs a blank grid. The dinov2 index is the
+    opposite on both counts, which is why it is listed and these are
+    not.
+    """
+    assert "thumbnails" not in status.SOURCE_FINGERPRINTS
+    assert "palette" not in status.SOURCE_FINGERPRINTS
 
 
 def test_each_fingerprinted_artifact_is_a_real_coverage_artifact():
@@ -175,21 +186,36 @@ def test_each_fingerprinted_artifact_is_a_real_coverage_artifact():
     assert set(status.SOURCE_FINGERPRINTS) <= names
 
 
-def test_the_two_manifests_name_their_own_source_field():
+def test_each_manifest_names_its_own_source_field():
     """The field differs per manifest, so it is stated per artifact."""
-    _, catalog_source, catalog_field = status.SOURCE_FINGERPRINTS[
-        "siglip2 index"
-    ]
-    _, caption_source, caption_field = status.SOURCE_FINGERPRINTS[
-        "caption index"
-    ]
+    expected = {
+        "siglip2 index": (status.CATALOG, "catalog_sha256"),
+        "dinov2 index": (status.CATALOG, "catalog_sha256"),
+        "caption index": (status.CAPTIONS, "captions_sha256"),
+    }
 
-    assert (catalog_source, catalog_field) == (
-        status.CATALOG, "catalog_sha256"
+    for artifact, (source, field) in expected.items():
+        _, actual_source, actual_field = status.SOURCE_FINGERPRINTS[artifact]
+
+        assert (actual_source, actual_field) == (source, field)
+
+
+def test_the_two_catalog_indexes_share_a_source_and_a_field():
+    """Both derive from the catalog, so both read the same sha.
+
+    They keep separate manifests because they are rebuilt separately;
+    the shared source is what makes one rebuild unable to vouch for the
+    other.
+    """
+    siglip_manifest, siglip_source, siglip_field = (
+        status.SOURCE_FINGERPRINTS["siglip2 index"]
     )
-    assert (caption_source, caption_field) == (
-        status.CAPTIONS, "captions_sha256"
+    dino_manifest, dino_source, dino_field = (
+        status.SOURCE_FINGERPRINTS["dinov2 index"]
     )
+
+    assert (siglip_source, siglip_field) == (dino_source, dino_field)
+    assert siglip_manifest != dino_manifest
 
 
 # ------------------------------------------------------------ the report
