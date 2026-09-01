@@ -462,3 +462,49 @@ header p a {
   flex-basis: 100%;
   color: var(--faint);
 }
+
+/*
+ * How the query was read, under the sentence about the results. Quiet:
+ * it is a note on the answer, not part of it.
+ */
+.parse {
+  display: grid;
+  grid-template-columns: 104px 1fr;
+  gap: 4px 0;
+  margin: 18px 0 0;
+  max-width: 44em;
+  font-size: 13px;
+  color: var(--quiet);
+}
+
+.parse dt {
+  color: var(--faint);
+  letter-spacing: 0.04em;
+}
+
+.parse dd {
+  margin: 0;
+}
+
+/*
+ * A rejection spans both columns and carries the ink the rest does not.
+ * It is the one line here reporting what the system nearly did instead
+ * of what it did, and burying it would defeat the point of showing any
+ * of this.
+ */
+.parse dd.rejected {
+  grid-column: 1 / -1;
+  margin-top: 6px;
+  color: var(--ink);
+}
+
+/*
+ * Not knowing why the query was read plainly is different from it
+ * having nothing in it to read, so the two do not look the same.
+ */
+.parse dd.unavailable {
+  grid-column: 1 / -1;
+  margin-top: 6px;
+  max-width: 38em;
+  line-height: 1.5;
+}

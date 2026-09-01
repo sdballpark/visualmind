@@ -1,9 +1,14 @@
-import { useEffect, useMemo, useState } from 'react'
-import { fetchPalette, type PaletteResponse } from './api'
+import { Fragment, useEffect, useMemo, useState } from 'react'
+import {
+  fetchPalette,
+  type PaletteResponse,
+  type SearchResponse,
+} from './api'
 import { DensityStrip } from './DensityStrip'
 import { PhotoGrid } from './PhotoGrid'
 import { PhotoPage } from './PhotoPage'
 import { counted } from './plural'
+import { parseNotes } from './parseNotes'
 import { navigate, pathFor, useRoute } from './router'
 import { useCollection } from './useCollection'
 
@@ -57,6 +62,41 @@ function SearchField({
     </form>
   )
 }
+
+/**
+ * How the query was read, under the sentence about the results.
+ *
+ * A rejection is set apart from the rest. Everything else here is the
+ * system reporting what it did; a rejection is it reporting what it
+ * nearly did instead, and that is the line worth reading - the layer
+ * exists because a resolved name the reader never typed would otherwise
+ * have arrived as a confident filter with nothing on the page to say so.
+ */
+function Parse({ outcome }: { outcome: SearchResponse }) {
+  const notes = parseNotes(outcome.understood)
+
+  if (notes.length === 0) {
+    return null
+  }
+
+  return (
+    <dl className="parse">
+      {notes.map((note, index) =>
+        note.kind === 'read' ? (
+          <Fragment key={index}>
+            <dt>{note.label}</dt>
+            <dd>{note.value}</dd>
+          </Fragment>
+        ) : (
+          <dd key={index} className={note.kind}>
+            {note.text}
+          </dd>
+        ),
+      )}
+    </dl>
+  )
+}
+
 
 function Collection({
   person,
@@ -168,6 +208,8 @@ function Collection({
               the count as a ceiling, not an answer.
             </p>
           )}
+
+          <Parse outcome={outcome} />
         </div>
       )}
 

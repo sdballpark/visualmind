@@ -42,6 +42,10 @@ function outcome(results: SearchResult[]): SearchResponse {
     events: [],
     pool_size: 441,
     corpus_size: 441,
+    understood: {
+      query: 'dog', persons: [], events: [], terms: 'dog',
+      dropped: [], source: 'fallback', note: 'no person or event named',
+    },
   }
 }
 

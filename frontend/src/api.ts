@@ -112,6 +112,31 @@ export interface SearchResult extends ImageRecord {
   matched: boolean
 }
 
+/** One name the parser proposed and then refused to pass on. */
+export interface DroppedName {
+  text: string
+  as: string
+  why: string
+}
+
+/**
+ * How the query was read before retrieval saw it.
+ *
+ * `source` is "model" when a model produced the reading and "fallback"
+ * when the whole query became search terms instead - which happens both
+ * when nothing in the query named anyone and when no model could be
+ * loaded, so `note` is what separates those two.
+ */
+export interface Understood {
+  query: string
+  persons: string[]
+  events: string[]
+  terms: string
+  dropped: DroppedName[]
+  source: string
+  note: string
+}
+
 export interface SearchResponse {
   results: SearchResult[]
   /**
@@ -142,6 +167,7 @@ export interface SearchResponse {
   events: string[]
   pool_size: number
   corpus_size: number
+  understood: Understood
 }
 
 function searchParams(
