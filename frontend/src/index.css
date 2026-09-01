@@ -1,0 +1,99 @@
+/*
+ * Warm off-white ground, colour only from the strip.
+ * No borders, no gradients, nothing decorative.
+ */
+
+:root {
+  --ground: #f7f4ee;
+  --ink: #443e36;
+  --quiet: #948b7e;
+
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, Helvetica, Arial, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+}
+
+main {
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 88px 56px;
+}
+
+header {
+  margin-bottom: 56px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+header p {
+  margin: 10px 0 0;
+  font-size: 14px;
+  color: var(--quiet);
+}
+
+.failed {
+  font-size: 14px;
+  color: var(--quiet);
+}
+
+.strip {
+  width: 100%;
+}
+
+/*
+ * A keyframe animation rather than a class the component toggles: the
+ * resting state is the visible one, so a mark is never left collapsed
+ * because a frame callback did not arrive.
+ */
+.band rect {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: rise 620ms cubic-bezier(0.2, 0.7, 0.25, 1) backwards;
+}
+
+@keyframes rise {
+  from {
+    transform: scaleY(0.04);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+.legend {
+  position: relative;
+  margin-top: 14px;
+  font-size: 12px;
+  color: var(--quiet);
+  letter-spacing: 0.03em;
+}
+
+.legend span {
+  position: absolute;
+  top: 0;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .band rect {
+    animation: none;
+  }
+}

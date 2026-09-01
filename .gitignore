@@ -39,6 +39,10 @@ runs/
 logs/
 *.log
 
+# Frontend build artifacts
+frontend/node_modules/
+frontend/dist/
+
 # IDE / OS
 .vscode/
 .idea/
