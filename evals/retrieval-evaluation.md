@@ -181,6 +181,10 @@ the term-match rule are shared by every query, so the nine above are a
 suite to re-run whenever one of them changes, not a set of results to
 quote.
 
+`scripts/check_retrieval.py` runs that suite against a recorded baseline
+and exits non-zero on any change, so it is now a command rather than a
+convention.
+
 ## Finding 7 - semantic reranking did not fix relational queries
 
 Finding 6 suggested weighting the caption semantic score within the
