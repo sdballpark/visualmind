@@ -186,15 +186,59 @@ def load_index(embeddings_path, lookup_path, manifest_path, label):
     return matrix, rows
 
 
+_HOLD_MODELS = False
+_HELD = {}
+
+
+def hold_models(enabled=True):
+    """Keep the encoders resident between calls instead of freeing them.
+
+    A script runs one query per process and wants the VRAM back the
+    moment it is done. A server answers many and cannot afford the
+    reload: loading the two encoders is 5.5 of the 5.6 seconds a cold
+    search takes, which is the difference between a usable grid and an
+    unusable one.
+
+    Off by default, so every caller that exists today is unaffected.
+    Ranking is identical either way - the same weights produce the same
+    vectors whether they were just loaded or held from last time.
+    """
+    global _HOLD_MODELS
+
+    _HOLD_MODELS = enabled
+
+    if not enabled:
+        release_models()
+
+
+def models_held():
+    """Which encoders are currently resident."""
+    return sorted(_HELD)
+
+
+def release_models():
+    """Drop any held encoders and hand the VRAM back."""
+    _HELD.clear()
+    torch.cuda.empty_cache()
+
+
 def image_scores(query):
     matrix, rows = load_index(
         IMAGE_EMB, IMAGE_LOOKUP, IMAGE_MANIFEST, "image"
     )
 
-    repo, revision = load_config("image_embedding")
+    if "image" in _HELD:
+        processor, model = _HELD["image"]
+    else:
+        repo, revision = load_config("image_embedding")
 
-    processor = AutoProcessor.from_pretrained(repo, revision=revision)
-    model = AutoModel.from_pretrained(repo, revision=revision).eval().cuda()
+        processor = AutoProcessor.from_pretrained(repo, revision=revision)
+        model = (
+            AutoModel.from_pretrained(repo, revision=revision).eval().cuda()
+        )
+
+        if _HOLD_MODELS:
+            _HELD["image"] = (processor, model)
 
     inputs = processor(
         text=[query],
@@ -209,8 +253,9 @@ def image_scores(query):
     features = F.normalize(features.float(), p=2, dim=-1)
     vector = features.cpu().numpy()[0]
 
-    del model
-    torch.cuda.empty_cache()
+    if not _HOLD_MODELS:
+        del model
+        torch.cuda.empty_cache()
 
     return matrix @ vector, rows
 
@@ -220,10 +265,18 @@ def caption_scores(query):
         CAPTION_EMB, CAPTION_LOOKUP, CAPTION_MANIFEST, "caption"
     )
 
-    repo, revision = load_config("text_embedding")
+    if "caption" in _HELD:
+        tokenizer, model = _HELD["caption"]
+    else:
+        repo, revision = load_config("text_embedding")
 
-    tokenizer = AutoTokenizer.from_pretrained(repo, revision=revision)
-    model = AutoModel.from_pretrained(repo, revision=revision).eval().cuda()
+        tokenizer = AutoTokenizer.from_pretrained(repo, revision=revision)
+        model = (
+            AutoModel.from_pretrained(repo, revision=revision).eval().cuda()
+        )
+
+        if _HOLD_MODELS:
+            _HELD["caption"] = (tokenizer, model)
 
     prefixed = (
         "Represent this sentence for searching relevant passages: " + query
@@ -244,8 +297,9 @@ def caption_scores(query):
     pooled = F.normalize(pooled.float(), p=2, dim=-1)
     vector = pooled.cpu().numpy()[0]
 
-    del model
-    torch.cuda.empty_cache()
+    if not _HOLD_MODELS:
+        del model
+        torch.cuda.empty_cache()
 
     return matrix @ vector, rows
 
