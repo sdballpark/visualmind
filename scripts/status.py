@@ -97,6 +97,71 @@ def failure_note(counts):
     )
 
 
+def coverage_report(catalog_paths):
+    """Every coverage artifact measured against the catalog.
+
+    Returns data rather than printing it, so status.py and the HTTP
+    /status endpoint cannot drift into reporting different things.
+    """
+    report = []
+
+    for name, path, script in COVERAGE:
+        paths = read_paths(path)
+
+        if paths is None:
+            report.append({
+                "artifact": name,
+                "script": script,
+                "covers": None,
+                "built": "-",
+                "status": "MISSING",
+                "stale": True,
+                "missing": None,
+                "orphaned": None,
+                "failures": {},
+                "failure_examples": [],
+            })
+            continue
+
+        missing = catalog_paths - paths
+        orphaned = paths - catalog_paths
+
+        if not missing and not orphaned:
+            status = "OK"
+        else:
+            parts = []
+
+            if missing:
+                parts.append(str(len(missing)) + " not covered")
+
+            if orphaned:
+                parts.append(str(len(orphaned)) + " no longer in catalog")
+
+            status = "STALE - " + ", ".join(parts)
+
+        # A failed image is covered but not usable, so the coverage
+        # count cannot carry this and the status column has to.
+        counts, names = failures(path)
+
+        if counts:
+            status = status + ", " + failure_note(counts)
+
+        report.append({
+            "artifact": name,
+            "script": script,
+            "covers": len(paths),
+            "built": age(path),
+            "status": status,
+            "stale": bool(missing or orphaned),
+            "missing": len(missing),
+            "orphaned": len(orphaned),
+            "failures": counts,
+            "failure_examples": names,
+        })
+
+    return report
+
+
 def age(path):
     if not path.exists():
         return "-"
@@ -138,41 +203,24 @@ def main():
     stale = []
     broken = []
 
-    for name, path, script in COVERAGE:
-        paths = read_paths(path)
+    for entry in coverage_report(catalog_paths):
+        name = entry["artifact"]
 
-        if paths is None:
+        if entry["covers"] is None:
             print(name.ljust(18) + "-".ljust(10) + "-".ljust(12) + "MISSING")
-            stale.append((name, script, "never built"))
+            stale.append((name, entry["script"], "never built"))
             continue
 
-        missing = catalog_paths - paths
-        orphaned = paths - catalog_paths
+        if entry["stale"]:
+            stale.append((name, entry["script"], entry["status"]))
 
-        if not missing and not orphaned:
-            status = "OK"
-        else:
-            parts = []
+        if entry["failures"]:
+            broken.append(
+                (name, entry["failures"], entry["failure_examples"])
+            )
 
-            if missing:
-                parts.append(str(len(missing)) + " not covered")
-
-            if orphaned:
-                parts.append(str(len(orphaned)) + " no longer in catalog")
-
-            status = "STALE - " + ", ".join(parts)
-            stale.append((name, script, status))
-
-        # A failed image is covered but not usable, so the coverage
-        # count cannot carry this and the status column has to.
-        counts, names = failures(path)
-
-        if counts:
-            status = status + ", " + failure_note(counts)
-            broken.append((name, counts, names))
-
-        print(name.ljust(18) + str(len(paths)).ljust(10)
-              + age(path).ljust(12) + status)
+        print(name.ljust(18) + str(entry["covers"]).ljust(10)
+              + entry["built"].ljust(12) + entry["status"])
 
     print()
     print("-" * 76)
