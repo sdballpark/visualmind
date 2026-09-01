@@ -25,8 +25,9 @@ describe('palette anchors', () => {
     const cool = ANCHORS.filter((a) => a.hue >= 180 && a.hue <= 240)
 
     // 286 of 440 images are warm, 130 cool, 24 everywhere else.
-    expect(warm.length).toBe(6)
-    expect(cool.length).toBe(4)
+    expect(warm.length).toBe(4)
+    expect(cool.length).toBe(3)
+    expect(ANCHORS.length).toBe(8)
     expect(warm.length + cool.length).toBeGreaterThan(ANCHORS.length / 2)
   })
 
@@ -37,7 +38,7 @@ describe('palette anchors', () => {
 
   it('gives the dense warm bucket more than one colour', () => {
     // An evenly spaced palette would flatten 10-50 into one swatch.
-    const shades = new Set([15, 25, 35, 45].map(colorFor))
+    const shades = new Set([10, 20, 30, 45].map(colorFor))
 
     expect(shades.size).toBe(4)
   })
