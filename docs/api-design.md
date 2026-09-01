@@ -36,6 +36,15 @@ actually gets.
 The one thing the API adds is a join: catalog, captions and thumbnail
 dimensions, keyed by source path, built once and held in app state.
 
+`/image/{sha256}` is the same principle applied to one photograph. It
+reshapes what `people.index()`, `events.index()` and the duplicate
+report already hold - who is in it, which event it belongs to, which
+near-duplicates it sits with - and decides none of it. It also returns
+the image's position in catalog order, so a deep link can pull the
+photographs around it through the existing paged `/images` rather than
+this endpoint growing a second way to list them. Self is kept in the
+duplicate group so a group reads the same from any member.
+
 ## What every result carries
 
 `sha256`, `filename`, `caption`, and the `grid` and `lightbox` dimensions

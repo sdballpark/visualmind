@@ -10,9 +10,14 @@ import react from '@vitejs/plugin-react'
  */
 const API = 'http://127.0.0.1:8000'
 
+/*
+ * Prefixes, not exact paths. '/image' covers both /image/<sha> and
+ * /images?offset=... - listing only '/images' let /image/<sha> fall
+ * through to the SPA fallback, and the page parsed index.html as JSON.
+ */
 const ENDPOINTS = [
   '/search',
-  '/images',
+  '/image',
   '/people',
   '/events',
   '/palette',

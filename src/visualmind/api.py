@@ -112,6 +112,11 @@ def load_library():
     order = []
     by_path = {}
     by_sha = {}
+    # Internal only. A source path never reaches a response, but the
+    # people and event indexes are keyed by one, so a sha has to be
+    # translatable back into a path on this side of the wire.
+    path_of = {}
+    index_of = {}
 
     for row in read_csv(CATALOG, encoding="utf-8-sig"):
         path = row["source_path"]
@@ -126,11 +131,19 @@ def load_library():
             "lightbox": dimensions(thumbnail, "lightbox"),
         }
 
+        index_of.setdefault(row["sha256"], len(order))
         order.append(record)
         by_path[path] = record
-        by_sha[row["sha256"]] = record
+        by_sha.setdefault(row["sha256"], record)
+        path_of.setdefault(row["sha256"], path)
 
-    return {"order": order, "by_path": by_path, "by_sha": by_sha}
+    return {
+        "order": order,
+        "by_path": by_path,
+        "by_sha": by_sha,
+        "path_of": path_of,
+        "index_of": index_of,
+    }
 
 
 def load_status_module():
@@ -229,6 +242,57 @@ def search_payload(library, outcome):
         "image_rank": sha_map(library, image_rank),
         "caption_rank": sha_map(library, caption_rank),
     }
+
+
+def people_in(path):
+    """Everyone the face pipeline placed in this photograph."""
+    images, faces = people.index()
+
+    return sorted(
+        (
+            {
+                "name": name,
+                "images": len(paths),
+                "faces": faces.get(name, 0),
+            }
+            for name, paths in images.items()
+            if path in paths
+        ),
+        key=lambda person: person["name"],
+    )
+
+
+def event_of(path):
+    """The event this photograph belongs to, or None.
+
+    An image belongs to exactly one event, which is why this returns a
+    single value rather than a list - the same reason events compose as
+    a union in the search filter.
+    """
+    for entry in events.index().values():
+        if path in entry["paths"]:
+            return {
+                "id": entry["id"],
+                "name": entry["name"],
+                "start": entry["start"],
+                "end": entry["end"],
+                "images": entry["images"],
+            }
+
+    return None
+
+
+def duplicate_siblings(library, sha256):
+    """The duplicate group holding this image, members included.
+
+    Self is kept in the list so a group reads the same from any member
+    and the page can say which one it is showing.
+    """
+    for group in duplicate_groups(library):
+        if any(member["sha256"] == sha256 for member in group["members"]):
+            return group
+
+    return None
 
 
 def palette_marks(library):
@@ -407,6 +471,27 @@ def create_app():
             "undated": sum(1 for m in marks if m["captured"] is None),
             "achromatic": sum(1 for m in marks if m["hue"] is None),
             "marks": marks,
+        }
+
+    @app.get("/image/{sha256}")
+    def image(sha256: str):
+        found = library()["by_sha"].get(sha256)
+
+        if found is None:
+            raise HTTPException(status_code=404, detail="no such image")
+
+        path = library()["path_of"][sha256]
+
+        return {
+            **found,
+            # Position in catalog order, so a deep link can pull the
+            # surrounding images through the existing paged endpoint
+            # rather than this one inventing a second way to list them.
+            "index": library()["index_of"][sha256],
+            "total": len(library()["order"]),
+            "people": people_in(path),
+            "event": event_of(path),
+            "duplicates": duplicate_siblings(library(), sha256),
         }
 
     @app.get("/duplicates")

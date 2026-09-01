@@ -519,3 +519,104 @@ def test_search_results_carry_capture_time_too(
 ])
 def test_capture_time_parsing(value, expected):
     assert api.captured_at(value) == expected
+
+
+# --- the item page -----------------------------------------------------
+
+
+@pytest.fixture
+def related(monkeypatch, tmp_path):
+    """People, events and duplicates covering the fixture corpus."""
+    monkeypatch.setattr(people, "index", lambda: (
+        {"Ada Fixture": {PATHS[0], PATHS[1]}, "Bo Fixture": {PATHS[0]}},
+        {"Ada Fixture": 3, "Bo Fixture": 1},
+    ))
+    monkeypatch.setattr(events, "index", lambda: {
+        "event-001": {
+            "id": "event-001", "name": "Fixture Picnic",
+            "start": "2020-06-01", "end": "2020-06-01",
+            "paths": {PATHS[0], PATHS[1]}, "images": 2,
+        },
+    })
+
+    duplicates = tmp_path / "duplicate_groups.csv"
+    write_csv(duplicates, ["tier", "group", "keep", "source_path"], [
+        {"tier": "NEAR", "group": "near-1", "keep": "1",
+         "source_path": PATHS[0]},
+        {"tier": "NEAR", "group": "near-1", "keep": "0",
+         "source_path": PATHS[2]},
+    ])
+    monkeypatch.setattr(api, "DUPLICATES", duplicates)
+
+
+def test_an_image_carries_the_fields_the_grid_already_had(client):
+    body = client.get(f"/image/{SHAS[PATHS[0]]}").json()
+
+    assert body["sha256"] == SHAS[PATHS[0]]
+    assert body["filename"] == "a.jpg"
+    assert body["lightbox"] == {"width": 1600, "height": 1200}
+
+
+def test_an_image_lists_the_people_in_it(client, related):
+    """Reshaped from people.index(), not decided here."""
+    body = client.get(f"/image/{SHAS[PATHS[0]]}").json()
+
+    assert [p["name"] for p in body["people"]] == [
+        "Ada Fixture", "Bo Fixture",
+    ]
+    assert body["people"][0]["images"] == 2
+
+
+def test_an_image_with_nobody_in_it_lists_nobody(client, related):
+    body = client.get(f"/image/{SHAS[PATHS[2]]}").json()
+
+    assert body["people"] == []
+
+
+def test_an_image_carries_its_one_event(client, related):
+    """An image belongs to exactly one event, so this is not a list."""
+    body = client.get(f"/image/{SHAS[PATHS[0]]}").json()
+
+    assert body["event"]["id"] == "event-001"
+    assert body["event"]["name"] == "Fixture Picnic"
+
+
+def test_an_unassigned_image_reports_a_null_event(client, related):
+    assert client.get(f"/image/{SHAS[PATHS[2]]}").json()["event"] is None
+
+
+def test_a_duplicate_group_reads_the_same_from_either_member(
+    client, related
+):
+    """Self stays in the list so a group is navigable from any member."""
+    first = client.get(f"/image/{SHAS[PATHS[0]]}").json()["duplicates"]
+    other = client.get(f"/image/{SHAS[PATHS[2]]}").json()["duplicates"]
+
+    assert first["group"] == other["group"] == "near-1"
+    assert first["tier"] == "NEAR"
+    assert [m["sha256"] for m in first["members"]] == [
+        m["sha256"] for m in other["members"]
+    ]
+
+
+def test_an_image_in_no_duplicate_group_reports_none(client, related):
+    assert client.get(f"/image/{SHAS[PATHS[1]]}").json()["duplicates"] is None
+
+
+def test_an_image_reports_its_position_so_a_deep_link_can_page(client):
+    """The item page pulls neighbours through /images, not through here."""
+    body = client.get(f"/image/{SHAS[PATHS[1]]}").json()
+
+    assert body["index"] == 1
+    assert body["total"] == 3
+
+
+def test_an_unknown_sha_is_a_404(client):
+    assert client.get("/image/" + "0" * 64).status_code == 404
+
+
+def test_the_item_endpoint_leaks_no_source_path(client, related):
+    raw = client.get(f"/image/{SHAS[PATHS[0]]}").text
+
+    assert "/photos/" not in raw
+    assert "source_path" not in raw

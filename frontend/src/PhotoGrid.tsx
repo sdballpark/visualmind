@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { gridThumbnail, type ImageRecord } from './api'
 import { heightOf, justify, ratioOf, visibleRange } from './justify'
-import { useImages } from './useImages'
+import { currentPath, navigate, recall } from './router'
+import { useCollection, type Filter } from './useCollection'
 
 /**
  * The collection as a justified grid.
@@ -49,8 +50,11 @@ function useViewport() {
   return { ...state, direction: direction.current }
 }
 
-export function PhotoGrid() {
-  const { images, total, failed, complete, loadMore } = useImages(PAGE)
+export function PhotoGrid({ filter }: { filter: Filter }) {
+  const { images, total, failed, complete, loadMore } = useCollection(
+    PAGE,
+    filter,
+  )
   const container = useRef<HTMLDivElement | null>(null)
   const [width, setWidth] = useState(0)
   const [offsetTop, setOffsetTop] = useState(0)
@@ -111,6 +115,26 @@ export function PhotoGrid() {
     BUFFER,
   )
 
+  /*
+   * Replay the scroll position the reader left from, once the grid is
+   * tall enough to hold it. Restoring earlier would clamp against a
+   * document that has not been allocated yet and land them at the top.
+   */
+  const restored = useRef(false)
+
+  useEffect(() => {
+    if (restored.current) {
+      return
+    }
+
+    const wanted = recall(currentPath())
+
+    if (wanted > 0 && height >= wanted) {
+      window.scrollTo(0, wanted)
+      restored.current = true
+    }
+  }, [height])
+
   useEffect(() => {
     if (complete || rows.length === 0) {
       return
@@ -132,17 +156,33 @@ export function PhotoGrid() {
           style={{ top: row.top, height: row.height }}
         >
           {row.items.map((placed) => (
-            <img
+            <a
               key={placed.item.sha256}
               className="photo"
-              src={gridThumbnail(placed.item.sha256)}
-              alt={placed.item.caption || placed.item.filename}
-              width={placed.width}
-              height={placed.height}
-              style={{ left: placed.x, width: placed.width, height: placed.height }}
-              loading="lazy"
-              decoding="async"
-            />
+              href={`/photo/${placed.item.sha256}`}
+              style={{
+                left: placed.x,
+                width: placed.width,
+                height: placed.height,
+              }}
+              onClick={(event) => {
+                if (event.metaKey || event.ctrlKey || event.shiftKey) {
+                  return
+                }
+
+                event.preventDefault()
+                navigate(`/photo/${placed.item.sha256}`)
+              }}
+            >
+              <img
+                src={gridThumbnail(placed.item.sha256)}
+                alt={placed.item.caption || placed.item.filename}
+                width={placed.width}
+                height={placed.height}
+                loading="lazy"
+                decoding="async"
+              />
+            </a>
           ))}
         </div>
       ))}
