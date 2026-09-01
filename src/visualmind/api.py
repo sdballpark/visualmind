@@ -19,6 +19,7 @@ See docs/api-design.md for what this deliberately does not do.
 """
 import csv
 import importlib.util
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
@@ -31,6 +32,7 @@ CATALOG = Path("data/metadata/image_catalog.csv")
 DUPLICATES = Path("data/metadata/duplicate_groups.csv")
 THUMBNAILS = Path("thumbnails")
 THUMBNAIL_MANIFEST = THUMBNAILS / "manifest.csv"
+PALETTE = THUMBNAILS / "palette.csv"
 STATUS_SCRIPT = Path("scripts/status.py")
 
 KINDS = ("grid", "lightbox")
@@ -55,6 +57,42 @@ def dimensions(row, kind):
     return {"width": int(width), "height": int(height)}
 
 
+EXIF_FORMAT = "%Y:%m:%d %H:%M:%S"
+
+
+def captured_at(value):
+    """EXIF capture time as ISO 8601, or None when there is not one.
+
+    Two things are normalised here. EXIF writes "2002:08:31 20:01:57",
+    which a browser reads as an invalid date, so the separators are
+    fixed on the way out. And four images in this corpus carry
+    "0000:00:00 00:00:00", a zeroed field rather than a time; treating
+    that as a date would park them at year zero on a strip whose axis
+    is time, which is exactly the guessed position an undated image is
+    supposed to avoid.
+
+    Nothing is substituted for a missing date. The frontend gives
+    undated images their own segment, and it can only do that if the
+    absence reaches it intact.
+    """
+    text = (value or "").strip()
+
+    if not text:
+        return None
+
+    try:
+        return datetime.strptime(text, EXIF_FORMAT).isoformat()
+    except ValueError:
+        return None
+
+
+def number(value):
+    """A CSV cell as a float, or None when the builder left it empty."""
+    text = (value or "").strip()
+
+    return float(text) if text else None
+
+
 def load_library():
     """Join catalog, captions and thumbnail dimensions by source path.
 
@@ -73,6 +111,7 @@ def load_library():
 
     order = []
     by_path = {}
+    by_sha = {}
 
     for row in read_csv(CATALOG, encoding="utf-8-sig"):
         path = row["source_path"]
@@ -82,14 +121,16 @@ def load_library():
             "sha256": row["sha256"],
             "filename": row["filename"],
             "caption": captions.get(path, ""),
+            "captured": captured_at(row.get("best_exif_date")),
             "grid": dimensions(thumbnail, "grid"),
             "lightbox": dimensions(thumbnail, "lightbox"),
         }
 
         order.append(record)
         by_path[path] = record
+        by_sha[row["sha256"]] = record
 
-    return {"order": order, "by_path": by_path}
+    return {"order": order, "by_path": by_path, "by_sha": by_sha}
 
 
 def load_status_module():
@@ -115,6 +156,7 @@ def record_for(library, path):
         "sha256": None,
         "filename": Path(path).name,
         "caption": "",
+        "captured": None,
         "grid": None,
         "lightbox": None,
     }
@@ -187,6 +229,35 @@ def search_payload(library, outcome):
         "image_rank": sha_map(library, image_rank),
         "caption_rank": sha_map(library, caption_rank),
     }
+
+
+def palette_marks(library):
+    """One mark per thumbnail, in catalog order.
+
+    Driven by the thumbnail manifest rather than the palette file, so an
+    image the palette builder has not reached yet still occupies its
+    place. A strip that silently loses marks is worse than one with
+    neutral gaps in it, because nothing about it looks wrong.
+    """
+    extracted = {row["sha256"]: row for row in read_csv(PALETTE)}
+
+    marks = []
+
+    for row in read_csv(THUMBNAIL_MANIFEST):
+        sha = row["sha256"]
+        entry = extracted.get(sha, {})
+        record = library["by_sha"].get(sha, {})
+
+        marks.append({
+            "sha256": sha,
+            # Null, not omitted: an achromatic photograph has no hue to
+            # report and the frontend draws it as a neutral mark.
+            "hue": number(entry.get("hue")),
+            "lightness": number(entry.get("lightness")),
+            "captured": record.get("captured"),
+        })
+
+    return marks
 
 
 def duplicate_groups(library):
@@ -326,6 +397,17 @@ def create_app():
     @app.get("/events")
     def roster_events():
         return {"events": events.roster()}
+
+    @app.get("/palette")
+    def palette():
+        marks = palette_marks(library())
+
+        return {
+            "total": len(marks),
+            "undated": sum(1 for m in marks if m["captured"] is None),
+            "achromatic": sum(1 for m in marks if m["hue"] is None),
+            "marks": marks,
+        }
 
     @app.get("/duplicates")
     def duplicates():

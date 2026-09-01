@@ -362,3 +362,160 @@ def test_the_library_is_built_once_and_held(client, monkeypatch):
     fresh.get("/duplicates")
 
     assert len(calls) == 1
+
+
+# --- palette and capture time ----------------------------------------
+
+
+@pytest.fixture
+def palette_file(monkeypatch, tmp_path):
+    """Three thumbnails, one of them achromatic."""
+    palette = tmp_path / "palette.csv"
+
+    write_csv(palette, ["sha256", "hue", "lightness", "status"], [
+        {"sha256": SHAS[PATHS[0]], "hue": "14.001",
+         "lightness": "0.45315", "status": "ok"},
+        # No hue: an all-grey photograph, measured correctly.
+        {"sha256": SHAS[PATHS[1]], "hue": "",
+         "lightness": "0.61968", "status": "ok"},
+        {"sha256": SHAS[PATHS[2]], "hue": "204.280",
+         "lightness": "0.30000", "status": "ok"},
+    ])
+
+    monkeypatch.setattr(api, "PALETTE", palette)
+
+    return palette
+
+
+def test_palette_returns_one_mark_per_thumbnail_row(client, palette_file):
+    """The strip draws every image, so the count has to match exactly."""
+    body = client.get("/palette").json()
+
+    assert body["total"] == 3
+    assert [m["sha256"] for m in body["marks"]] == [SHAS[p] for p in PATHS]
+
+
+def test_an_achromatic_image_keeps_its_mark_with_a_null_hue(
+    client, palette_file
+):
+    """Omitting it would shorten the strip with nothing looking wrong."""
+    marks = client.get("/palette").json()["marks"]
+    grey = [m for m in marks if m["sha256"] == SHAS[PATHS[1]]][0]
+
+    assert grey["hue"] is None
+    assert grey["lightness"] == pytest.approx(0.61968)
+    assert client.get("/palette").json()["achromatic"] == 1
+
+
+def test_a_thumbnail_the_palette_has_not_reached_still_gets_a_mark(
+    client, monkeypatch, tmp_path
+):
+    """Driven by the thumbnail manifest, not by the palette file."""
+    palette = tmp_path / "palette.csv"
+    write_csv(palette, ["sha256", "hue", "lightness", "status"], [
+        {"sha256": SHAS[PATHS[0]], "hue": "14.0",
+         "lightness": "0.4", "status": "ok"},
+    ])
+    monkeypatch.setattr(api, "PALETTE", palette)
+
+    body = client.get("/palette").json()
+
+    assert body["total"] == 3
+    assert body["marks"][2]["hue"] is None
+    assert body["marks"][2]["lightness"] is None
+
+
+def test_hue_arrives_unquantized(client, palette_file):
+    """The builder stores real degrees; the transport must not round."""
+    marks = client.get("/palette").json()["marks"]
+
+    assert marks[0]["hue"] == pytest.approx(14.001)
+    assert marks[2]["hue"] == pytest.approx(204.280)
+
+
+# --- capture time ----------------------------------------------------
+
+
+DATED = [
+    {"source_path": PATHS[0], "filename": "a.jpg", "sha256": SHAS[PATHS[0]],
+     "best_exif_date": "2002:08:31 20:01:57"},
+    # No EXIF date at all: 149 images in this corpus.
+    {"source_path": PATHS[1], "filename": "b.jpg", "sha256": SHAS[PATHS[1]],
+     "best_exif_date": ""},
+    # A zeroed EXIF field, which is not a date either.
+    {"source_path": PATHS[2], "filename": "c.jpg", "sha256": SHAS[PATHS[2]],
+     "best_exif_date": "0000:00:00 00:00:00"},
+]
+
+
+@pytest.fixture
+def dated_catalog(monkeypatch, tmp_path):
+    catalog = tmp_path / "dated_catalog.csv"
+    write_csv(
+        catalog,
+        ["source_path", "filename", "sha256", "best_exif_date"],
+        DATED,
+    )
+    monkeypatch.setattr(api, "CATALOG", catalog)
+
+    return catalog
+
+
+def test_images_carry_an_iso_capture_time(client, dated_catalog):
+    """EXIF colons are not parseable by a browser; ISO is."""
+    images = client.get("/images").json()["images"]
+
+    assert images[0]["captured"] == "2002-08-31T20:01:57"
+
+
+def test_an_undated_image_is_present_with_a_null_date(client, dated_catalog):
+    """It gets its own segment in the strip, so it must arrive."""
+    images = client.get("/images").json()["images"]
+
+    assert len(images) == 3
+    assert images[1]["captured"] is None
+
+
+def test_a_zeroed_exif_field_is_not_treated_as_a_date(
+    client, dated_catalog
+):
+    """Year zero would park it at the far left of a time axis."""
+    images = client.get("/images").json()["images"]
+
+    assert images[2]["captured"] is None
+
+
+def test_palette_marks_carry_the_same_capture_time(
+    client, dated_catalog, palette_file
+):
+    """Position along the strip is time, so the marks need it too."""
+    body = client.get("/palette").json()
+
+    assert body["marks"][0]["captured"] == "2002-08-31T20:01:57"
+    assert body["marks"][1]["captured"] is None
+    assert body["undated"] == 2
+
+
+def test_search_results_carry_capture_time_too(
+    client, dated_catalog, monkeypatch
+):
+    """One shared record, so nothing has to be joined twice."""
+    monkeypatch.setattr(retrieval, "search", lambda *a, **k: fake_search(
+        results=[(PATHS[0], 0.5)],
+    ))
+
+    result = client.get("/search", params={"q": "zebra"}).json()["results"][0]
+
+    assert result["captured"] == "2002-08-31T20:01:57"
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("2002:08:31 20:01:57", "2002-08-31T20:01:57"),
+    ("", None),
+    ("   ", None),
+    (None, None),
+    ("0000:00:00 00:00:00", None),
+    ("not a date", None),
+])
+def test_capture_time_parsing(value, expected):
+    assert api.captured_at(value) == expected
