@@ -10,7 +10,15 @@ An image with no faces in it is correctly absent from the index but was
 still scanned, and treating that as a gap would report false staleness
 on 76 of 441 images in this corpus.
 
-Exit code is 1 if anything is stale.
+The same record keeps a row for an image the builder could not read, so
+a failure stays distinguishable from an image never attempted. That row
+counts as covered, correctly - it was attempted - which means coverage
+alone would report "441 OK" while part of the corpus is broken. Non-ok
+rows are therefore counted and reported on their own.
+
+Exit code is 1 if anything is stale. Unreadable sources do not set it:
+rebuilding cannot clear them, so failing here would leave the check
+permanently red with nothing to act on but the source files.
 """
 import csv
 import json
@@ -57,6 +65,38 @@ def read_rows(path):
         return list(csv.DictReader(handle))
 
 
+def failures(path):
+    """Non-ok status rows: counts by state, and a few names to look at.
+
+    build_faces.py and build_thumbnails.py both record a status column.
+    Anything other than "ok" is a source the builder reached and could
+    not use.
+    """
+    counts = {}
+    names = []
+
+    for row in read_rows(path):
+        state = row.get("status")
+
+        if not state or state == "ok":
+            continue
+
+        counts[state] = counts.get(state, 0) + 1
+
+        if len(names) < 5:
+            names.append(Path(row["source_path"]).name)
+
+    return counts, names
+
+
+def failure_note(counts):
+    """Render non-ok counts for the status column."""
+    return ", ".join(
+        str(count) + " " + state
+        for state, count in sorted(counts.items())
+    )
+
+
 def age(path):
     if not path.exists():
         return "-"
@@ -96,6 +136,7 @@ def main():
     print("-" * 76)
 
     stale = []
+    broken = []
 
     for name, path, script in COVERAGE:
         paths = read_paths(path)
@@ -121,6 +162,14 @@ def main():
 
             status = "STALE - " + ", ".join(parts)
             stale.append((name, script, status))
+
+        # A failed image is covered but not usable, so the coverage
+        # count cannot carry this and the status column has to.
+        counts, names = failures(path)
+
+        if counts:
+            status = status + ", " + failure_note(counts)
+            broken.append((name, counts, names))
 
         print(name.ljust(18) + str(len(paths)).ljust(10)
               + age(path).ljust(12) + status)
@@ -226,8 +275,30 @@ def main():
 
     print()
 
+    if broken:
+        print("-" * 76)
+        print("UNREADABLE SOURCES")
+        print("-" * 76)
+
+        for name, counts, names in broken:
+            print("  " + name.ljust(18) + failure_note(counts))
+            print("  " + " " * 18 + ", ".join(names)
+                  + (", ..." if sum(counts.values()) > len(names) else ""))
+            print()
+
+        print("  Rebuilding will not clear these. The builder reached each")
+        print("  file and recorded that it could not be used, so the source")
+        print("  is what needs attention - not the artifact.")
+        print()
+
     if not stale:
-        print("Everything is current.")
+        if broken:
+            total = sum(sum(c.values()) for _, c, _ in broken)
+            print("Nothing is stale. " + str(total)
+                  + " source(s) could not be read - see above.")
+        else:
+            print("Everything is current.")
+
         print()
         return 0
 
