@@ -503,6 +503,12 @@ def create_app():
             "index": library()["index_of"][sha256],
             "total": len(library()["order"]),
             "people": people_in(path),
+            # Detected faces clustering could not place with anyone.
+            # "people" is the list of those it could, so without this a
+            # frame with three faces and two names reads as a frame with
+            # two people. A count only: see people.unmatched for why no
+            # name travels with it.
+            "unmatched_faces": people.unmatched().get(path, 0),
             "event": event_of(path),
             "duplicates": duplicate_siblings(library(), sha256),
         }

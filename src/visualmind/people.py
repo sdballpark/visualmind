@@ -80,6 +80,41 @@ def index():
     return dict(images), dict(faces)
 
 
+UNPLACED = "unassigned"
+
+
+def unmatched():
+    """Detected faces per image that clustering did not place with anyone.
+
+    DBSCAN marks a face as noise when too few of its neighbours sit
+    inside eps, and a noise face carries no person - so index() drops it,
+    and a photograph with three detected faces and two named people
+    reads as a photograph with two people. That is incomplete rather
+    than wrong, and it is the one place this interface says nothing
+    about its own uncertainty.
+
+    The count is returned and nothing else, deliberately. Every unplaced
+    face has a nearest labelled neighbour and a distance to it, and both
+    are computable from the same files - one frame in this corpus holds a
+    face 0.455 from its nearest match against an eps of 0.45, which is a
+    named person missed by five thousandths. Offering that name here
+    would invite exactly the trust the clusterer withheld when it
+    declined to place the face, which is the error a search makes when
+    it presents a gradient guess as a match.
+    """
+    if not available():
+        return {}
+
+    counts = defaultdict(int)
+
+    with CLUSTERS.open("r", encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            if row["person"] == UNPLACED:
+                counts[row["source_path"]] += 1
+
+    return dict(counts)
+
+
 def roster():
     """People sorted by how many images they appear in."""
     images, faces = index()

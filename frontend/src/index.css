@@ -452,3 +452,13 @@ header p a {
 .diagnostics .aside {
   color: var(--faint);
 }
+
+/*
+ * Faces the clusterer could not place. It sits under the names rather
+ * than beside them - it is a caveat on the list above it, not another
+ * member of it - so it takes a whole flex line of its own.
+ */
+.related .unmatched {
+  flex-basis: 100%;
+  color: var(--faint);
+}

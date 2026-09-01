@@ -669,3 +669,55 @@ def test_the_unassigned_bucket_stays_in_the_roster(tmp_path, monkeypatch):
     monkeypatch.setattr(api.events, "EVENTS", path)
 
     assert [e["id"] for e in api.events.roster()] == ["unassigned"]
+
+
+def test_the_image_endpoint_carries_unmatched_faces(client, related):
+    """Transport only: the count the item page needs to stop implying
+    that the named people are everyone in the frame."""
+    body = client.get(f"/image/{SHAS[PATHS[0]]}").json()
+
+    assert "unmatched_faces" in body
+    assert isinstance(body["unmatched_faces"], int)
+
+
+def test_unmatched_faces_counts_only_the_unplaced(
+    tmp_path, monkeypatch, client
+):
+    path = tmp_path / "face_clusters.csv"
+    path.write_text(
+        "person,face_id,source_path,filename,x1,y1,x2,y2,"
+        "det_score,sex,age\n"
+        f"Person_001,f1,{PATHS[0]},img1.jpg,0,0,9,9,0.9,,\n"
+        f"unassigned,f2,{PATHS[0]},img1.jpg,0,0,9,9,0.9,,\n"
+        f"unassigned,f3,{PATHS[0]},img1.jpg,0,0,9,9,0.9,,\n",
+        encoding="utf-8",
+    )
+    labels = tmp_path / "person_labels.json"
+    labels.write_text('{"Ada Fixture": ["f1"]}', encoding="utf-8")
+
+    monkeypatch.setattr(api.people, "CLUSTERS", path)
+    monkeypatch.setattr(api.people, "LABELS", labels)
+
+    body = client.get(f"/image/{SHAS[PATHS[0]]}").json()
+
+    assert body["unmatched_faces"] == 2
+    assert [p["name"] for p in body["people"]] == ["Ada Fixture"]
+
+
+def test_unmatched_faces_is_zero_when_everything_was_placed(
+    tmp_path, monkeypatch, client
+):
+    path = tmp_path / "face_clusters.csv"
+    path.write_text(
+        "person,face_id,source_path,filename,x1,y1,x2,y2,"
+        "det_score,sex,age\n"
+        f"Person_001,f1,{PATHS[0]},img1.jpg,0,0,9,9,0.9,,\n",
+        encoding="utf-8",
+    )
+    labels = tmp_path / "person_labels.json"
+    labels.write_text('{"Ada Fixture": ["f1"]}', encoding="utf-8")
+
+    monkeypatch.setattr(api.people, "CLUSTERS", path)
+    monkeypatch.setattr(api.people, "LABELS", labels)
+
+    assert client.get(f"/image/{SHAS[PATHS[0]]}").json()["unmatched_faces"] == 0

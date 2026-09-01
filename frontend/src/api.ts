@@ -85,6 +85,12 @@ export interface ImageDetail extends ImageRecord {
   index: number
   total: number
   people: Person[]
+  /**
+   * Faces detected in this photograph that clustering did not place
+   * with anyone. `people` holds the ones it did, so this is the
+   * difference between them - a count only, deliberately.
+   */
+  unmatched_faces: number
   event: EventSummary | null
   duplicates: DuplicateGroup | null
 }

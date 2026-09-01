@@ -8,6 +8,7 @@ import {
   type ImageRecord,
 } from './api'
 import { eventLine, type EventLine } from './eventLine'
+import { unmatchedNote } from './faces'
 import { counted } from './plural'
 import { navigate } from './router'
 import { recallResult } from './searchMemory'
@@ -68,6 +69,7 @@ function Event({ line }: { line: EventLine }) {
 
 function Related({ detail }: { detail: ImageDetail }) {
   const { people, event, duplicates } = detail
+  const unmatched = unmatchedNote(detail.unmatched_faces)
   const siblings = duplicates?.members.filter(
     (member) => member.sha256 !== detail.sha256,
   )
@@ -90,6 +92,8 @@ function Related({ detail }: { detail: ImageDetail }) {
             {person.name}
           </a>
         ))}
+        {/* Beneath the names, in the register the absences use. */}
+        {unmatched && <span className="unmatched">{unmatched}</span>}
       </dd>
 
       <dt>Event</dt>
