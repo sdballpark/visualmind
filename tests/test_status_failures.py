@@ -131,7 +131,30 @@ def test_the_status_column_note_reads_in_a_stable_order(counts, expected):
 
 def test_both_status_recording_artifacts_are_covered():
     """The two builders that can fail are both in the coverage table."""
-    names = [name for name, _, _ in status.COVERAGE]
+    names = [entry[0] for entry in status.COVERAGE]
 
     assert "face scan" in names
     assert "thumbnails" in names
+    assert "palette" in names
+
+
+def test_palette_is_measured_against_thumbnails_not_the_catalog():
+    """Palette derives from the grid thumbnails.
+
+    Measuring it against the catalog would report every image the
+    thumbnailer could not read as a palette gap, and point at the wrong
+    script to fix it.
+    """
+    entry = [row for row in status.COVERAGE if row[0] == "palette"][0]
+
+    assert entry[3] == status.THUMBNAIL_MANIFEST
+    assert entry[4] == "sha256"
+
+
+def test_catalog_derived_artifacts_join_on_source_path():
+    for entry in status.COVERAGE:
+        if entry[0] == "palette":
+            continue
+
+        assert entry[3] is None
+        assert entry[4] == "source_path"

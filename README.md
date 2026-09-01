@@ -197,6 +197,7 @@ hook and no warning that it is missing.
     scripts/label_faces.py               assign names to clusters
     scripts/build_events.py              group photos into occasions
     scripts/build_thumbnails.py          grid and lightbox JPEGs
+    scripts/build_palette.py             dominant hue and lightness
     scripts/find_duplicates.py           three-tier duplicate report
     scripts/search_hybrid.py             console search
     scripts/search_gallery.py            HTML gallery

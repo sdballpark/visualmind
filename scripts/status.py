@@ -34,27 +34,42 @@ LABELS = Path("data/metadata/person_labels.json")
 EVENTS = Path("data/metadata/events.csv")
 INDEX_DIR = Path("indexes")
 THUMBNAIL_MANIFEST = Path("thumbnails") / "manifest.csv"
+PALETTE = Path("thumbnails") / "palette.csv"
 
+# (name, artifact, script, what it is measured against, join key).
+# A base of None means the catalog. Palette is derived from the grid
+# thumbnails rather than from the catalog, so measuring it against the
+# catalog would report every image the thumbnailer could not read as a
+# palette gap and send you to rebuild the wrong thing.
 COVERAGE = [
-    ("captions", CAPTIONS, "build_captions.py"),
+    ("captions", CAPTIONS, "build_captions.py", None, "source_path"),
     ("siglip2 index", INDEX_DIR / "siglip2_lookup.csv",
-     "build_embeddings.py"),
+     "build_embeddings.py", None, "source_path"),
     ("caption index", INDEX_DIR / "caption_lookup.csv",
-     "build_caption_embeddings.py"),
+     "build_caption_embeddings.py", None, "source_path"),
     ("dinov2 index", INDEX_DIR / "dinov2_lookup.csv",
-     "build_visual_embeddings.py"),
-    ("face scan", INDEX_DIR / "face_scanned.csv", "build_faces.py"),
-    ("thumbnails", THUMBNAIL_MANIFEST, "build_thumbnails.py"),
+     "build_visual_embeddings.py", None, "source_path"),
+    ("face scan", INDEX_DIR / "face_scanned.csv", "build_faces.py",
+     None, "source_path"),
+    ("thumbnails", THUMBNAIL_MANIFEST, "build_thumbnails.py",
+     None, "source_path"),
+    ("palette", PALETTE, "build_palette.py",
+     THUMBNAIL_MANIFEST, "sha256"),
 ]
 
 
-def read_paths(path):
-    """Set of source_path values in a CSV, or None if the file is absent."""
+def read_keys(path, column):
+    """Set of values in one column of a CSV, or None if it is absent."""
     if not path.exists():
         return None
 
     with path.open("r", encoding="utf-8", newline="") as handle:
-        return {row["source_path"] for row in csv.DictReader(handle)}
+        return {row[column] for row in csv.DictReader(handle)}
+
+
+def read_paths(path):
+    """Set of source_path values in a CSV, or None if the file is absent."""
+    return read_keys(path, "source_path")
 
 
 def read_rows(path):
@@ -105,8 +120,28 @@ def coverage_report(catalog_paths):
     """
     report = []
 
-    for name, path, script in COVERAGE:
-        paths = read_paths(path)
+    for name, path, script, base_path, key in COVERAGE:
+        base = catalog_paths if base_path is None else read_keys(
+            base_path, key
+        )
+        paths = read_keys(path, key)
+
+        if paths is not None and base is None:
+            # Nothing to measure against: the artifact this one derives
+            # from has not been built.
+            report.append({
+                "artifact": name,
+                "script": script,
+                "covers": len(paths),
+                "built": age(path),
+                "status": "UNMEASURABLE - " + base_path.name + " missing",
+                "stale": True,
+                "missing": None,
+                "orphaned": None,
+                "failures": {},
+                "failure_examples": [],
+            })
+            continue
 
         if paths is None:
             report.append({
@@ -123,8 +158,8 @@ def coverage_report(catalog_paths):
             })
             continue
 
-        missing = catalog_paths - paths
-        orphaned = paths - catalog_paths
+        missing = base - paths
+        orphaned = paths - base
 
         if not missing and not orphaned:
             status = "OK"

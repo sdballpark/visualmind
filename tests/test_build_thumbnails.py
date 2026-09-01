@@ -151,7 +151,7 @@ def test_status_covers_thumbnails_against_the_catalog():
     status = importlib.util.module_from_spec(status_spec)
     status_spec.loader.exec_module(status)
 
-    names = [name for name, _, _ in status.COVERAGE]
+    names = [entry[0] for entry in status.COVERAGE]
     entry = [row for row in status.COVERAGE if row[0] == "thumbnails"]
 
     assert "thumbnails" in names
