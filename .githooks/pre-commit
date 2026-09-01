@@ -11,7 +11,7 @@
 
 set -euo pipefail
 
-BLOCKED='(^|/)(captions\.csv|caption_lookup\.csv|siglip2_lookup\.csv|dinov2_lookup\.csv|face_lookup\.csv|person_labels\.json|duplicate_groups\.csv|image_catalog\.csv)$|\.npy$|(^|/)(indexes|outputs)/|\.(jpe?g|png|gif|tiff?|heic|webp|bmp)$'
+BLOCKED='(^|/)(captions\.csv|caption_lookup\.csv|siglip2_lookup\.csv|dinov2_lookup\.csv|face_lookup\.csv|person_labels\.json|duplicate_groups\.csv|image_catalog\.csv)$|\.npy$|(^|/)(indexes|outputs|thumbnails)/|\.(jpe?g|png|gif|tiff?|heic|webp|bmp)$'
 
 ALLOWED='(^|/)person_labels\.example\.json$|(^|/)docs/'
 

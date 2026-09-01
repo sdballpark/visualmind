@@ -25,6 +25,7 @@ CLUSTERS = Path("data/metadata/face_clusters.csv")
 LABELS = Path("data/metadata/person_labels.json")
 EVENTS = Path("data/metadata/events.csv")
 INDEX_DIR = Path("indexes")
+THUMBNAIL_MANIFEST = Path("thumbnails") / "manifest.csv"
 
 COVERAGE = [
     ("captions", CAPTIONS, "build_captions.py"),
@@ -35,6 +36,7 @@ COVERAGE = [
     ("dinov2 index", INDEX_DIR / "dinov2_lookup.csv",
      "build_visual_embeddings.py"),
     ("face scan", INDEX_DIR / "face_scanned.csv", "build_faces.py"),
+    ("thumbnails", THUMBNAIL_MANIFEST, "build_thumbnails.py"),
 ]
 
 
