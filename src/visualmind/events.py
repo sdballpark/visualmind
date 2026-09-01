@@ -40,6 +40,13 @@ class UnknownEvent(Exception):
         super().__init__("no event matching '" + query + "'")
 
 
+# Where images go when they have no capture time and no unambiguous
+# thread to place them by. It is a bucket, not an occasion, and callers
+# that ask "which event is this in" have to say so rather than matching
+# the string themselves.
+UNASSIGNED = "unassigned"
+
+
 def available():
     return EVENTS.exists()
 
@@ -79,7 +86,7 @@ def roster():
 
     return sorted(
         entries,
-        key=lambda e: (e["id"] == "unassigned", e["start"] or ""),
+        key=lambda e: (e["id"] == UNASSIGNED, e["start"] or ""),
         reverse=True,
     )
 

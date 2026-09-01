@@ -622,3 +622,50 @@ def test_the_item_endpoint_leaks_no_source_path(client, related):
 
     assert "/photos/" not in raw
     assert "source_path" not in raw
+
+
+def test_the_unassigned_bucket_is_not_reported_as_an_event(
+    tmp_path, monkeypatch
+):
+    """118 undated images are not an occasion 118 photographs share.
+
+    The bucket is where an image goes when it has no capture time and no
+    unambiguous thread, so membership of it is the absence of an event.
+    Reported as one, it put a link on the item page to 118 photographs
+    whose only relation to this one is that none could be dated.
+    """
+    path = tmp_path / "events.csv"
+    path.write_text(
+        "event_id,event_name,event_start,event_end,image_count,"
+        "date_source,source_path,filename,capture_time,gmail_subject,"
+        "gmail_thread_id\n"
+        "event-001,Fixture Picnic,2020-06-01,2020-06-01,1,exif,"
+        "img1.jpg,img1.jpg,2020-06-01T10:00:00,,\n"
+        "unassigned,unassigned,,,2,none,img7.jpg,img7.jpg,,,\n"
+        "unassigned,unassigned,,,2,none,img8.jpg,img8.jpg,,,\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(api.events, "EVENTS", path)
+
+    assert api.event_of("img7.jpg") is None
+    assert api.event_of("img8.jpg") is None
+    # A real event still reports, and still carries its count.
+    assert api.event_of("img1.jpg")["name"] == "Fixture Picnic"
+
+
+def test_the_unassigned_bucket_stays_in_the_roster(tmp_path, monkeypatch):
+    """"Everything undated" is a real question, so it stays filterable.
+
+    Only membership is suppressed, not the bucket itself.
+    """
+    path = tmp_path / "events.csv"
+    path.write_text(
+        "event_id,event_name,event_start,event_end,image_count,"
+        "date_source,source_path,filename,capture_time,gmail_subject,"
+        "gmail_thread_id\n"
+        "unassigned,unassigned,,,1,none,img7.jpg,img7.jpg,,,\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(api.events, "EVENTS", path)
+
+    assert [e["id"] for e in api.events.roster()] == ["unassigned"]

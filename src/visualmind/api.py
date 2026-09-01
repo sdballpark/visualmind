@@ -269,8 +269,20 @@ def event_of(path):
     An image belongs to exactly one event, which is why this returns a
     single value rather than a list - the same reason events compose as
     a union in the search filter.
+
+    The unassigned bucket is not one of them. It is where images go when
+    there is no capture time and no unambiguous thread to place them by,
+    which makes it the absence of an event rather than an event that 118
+    photographs share. Returning it here put a link on the item page to
+    118 images whose only relation to this one is that none of them
+    could be dated. It stays in the roster and stays filterable, because
+    "show me everything undated" is a real question - it just is not a
+    membership this photograph has.
     """
     for entry in events.index().values():
+        if entry["id"] == events.UNASSIGNED:
+            continue
+
         if path in entry["paths"]:
             return {
                 "id": entry["id"],

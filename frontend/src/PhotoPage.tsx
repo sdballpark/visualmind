@@ -7,6 +7,7 @@ import {
   type ImageDetail,
   type ImageRecord,
 } from './api'
+import { eventLine, type EventLine } from './eventLine'
 import { counted } from './plural'
 import { navigate } from './router'
 import { recallResult } from './searchMemory'
@@ -22,6 +23,48 @@ import { recallResult } from './searchMemory'
 
 /** How many neighbours either side to pull for the strip. */
 const REACH = 14
+
+/**
+ * A singleton is not linked. The link would return the reader to a grid
+ * holding the one photograph they are already on, which is a door onto
+ * the room they are standing in rather than a way out.
+ */
+function Event({ line }: { line: EventLine }) {
+  if (line.kind === 'none') {
+    return <span className="absent">not part of any event</span>
+  }
+
+  if (line.kind === 'alone') {
+    return (
+      <span>
+        {line.name}
+        <span className="aside">
+          {line.date ? ` · ${line.date}` : ''}
+          {' · the only photograph from it'}
+        </span>
+      </span>
+    )
+  }
+
+  const { event, date } = line
+
+  return (
+    <a
+      href={`/?event=${encodeURIComponent(event.id)}`}
+      onClick={(clicked) => {
+        clicked.preventDefault()
+        navigate(`/?event=${encodeURIComponent(event.id)}`)
+      }}
+    >
+      {event.name}
+      <span className="aside">
+        {date ? ` · ${date}` : ''}
+        {` · ${counted(event.images, 'image')}`}
+      </span>
+    </a>
+  )
+}
+
 
 function Related({ detail }: { detail: ImageDetail }) {
   const { people, event, duplicates } = detail
@@ -51,23 +94,7 @@ function Related({ detail }: { detail: ImageDetail }) {
 
       <dt>Event</dt>
       <dd>
-        {event ? (
-          <a
-            href={`/?event=${encodeURIComponent(event.id)}`}
-            onClick={(clicked) => {
-              clicked.preventDefault()
-              navigate(`/?event=${encodeURIComponent(event.id)}`)
-            }}
-          >
-            {event.name}
-            <span className="aside">
-              {event.start ? ` · ${event.start.slice(0, 10)}` : ''}
-              {` · ${counted(event.images, 'image')}`}
-            </span>
-          </a>
-        ) : (
-          <span className="absent">unassigned</span>
-        )}
+        <Event line={eventLine(event)} />
       </dd>
 
       <dt>Near-duplicates</dt>
