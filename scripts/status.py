@@ -16,11 +16,25 @@ counts as covered, correctly - it was attempted - which means coverage
 alone would report "441 OK" while part of the corpus is broken. Non-ok
 rows are therefore counted and reported on their own.
 
-Exit code is 1 if anything is stale. Unreadable sources do not set it:
+Coverage compares row counts, which cannot see a source whose contents
+changed without changing its length. The caption index read "441 OK"
+while it was built from caption text that had since been rewritten - the
+row count was right and the captions were superseded. Where a builder
+records a source fingerprint in its manifest, that is compared too.
+
+This reports; it does not refuse. retrieval.verify_index is the check
+that refuses, and it asks a different question - whether a matrix and
+its lookup still line up, which is unsafe to answer wrongly. A stale
+source is safe to read and merely out of date, so it belongs in the
+status column and the rebuild list rather than in an exception.
+
+Exit code is 1 if anything is stale, a stale source fingerprint
+included: rebuilding clears it. Unreadable sources do not set it:
 rebuilding cannot clear them, so failing here would leave the check
 permanently red with nothing to act on but the source files.
 """
 import csv
+import hashlib
 import json
 import sys
 import time
@@ -56,6 +70,84 @@ COVERAGE = [
     ("palette", PALETTE, "build_palette.py",
      THUMBNAIL_MANIFEST, "sha256"),
 ]
+
+# (artifact, manifest, source, the field the builder records it under).
+#
+# Two builders record what they built from, and only these two. The
+# field names differ because each manifest names its own source -
+# build_embeddings.py records catalog_sha256, build_caption_embeddings.py
+# records captions_sha256 - so the field is stated here rather than
+# guessed from a convention that holds for two files.
+#
+# Everything else has no manifest at all: the dinov2 index, the face
+# scan, thumbnails, the palette, and captions.csv itself. They are absent
+# from this table rather than given an invented manifest, so an artifact
+# with no recorded fingerprint keeps exactly the coverage answer it had
+# before. Adding one is a change to its builder, not to this file.
+SOURCE_FINGERPRINTS = {
+    "siglip2 index": (
+        INDEX_DIR / "siglip2_index.json", CATALOG, "catalog_sha256",
+    ),
+    "caption index": (
+        INDEX_DIR / "caption_index.json", CAPTIONS, "captions_sha256",
+    ),
+}
+
+
+def sha256_file(path):
+    digest = hashlib.sha256()
+
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+
+    return digest.hexdigest()
+
+
+def source_state(artifact):
+    """(note, stale) for one artifact's recorded source fingerprint.
+
+    A phrase for the status column and whether it counts as stale, or
+    (None, False) when the artifact records no fingerprint - which is
+    most of them, and is not a failure.
+
+    Every state this can report is cleared by rebuilding, which is why
+    they all set staleness. A missing manifest means an index built
+    before fingerprinting existed, and retrieval refuses that at query
+    time; a missing source means the artifact cannot be checked or
+    rebuilt until it comes back. Neither is a state to report as OK,
+    having just watched "441 OK" stand in for superseded captions.
+    """
+    if artifact not in SOURCE_FINGERPRINTS:
+        return None, False
+
+    manifest_path, source, field = SOURCE_FINGERPRINTS[artifact]
+
+    if not manifest_path.exists():
+        return "no manifest, so its source is unrecorded", True
+
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        return manifest_path.name + " is unreadable", True
+
+    # Valid JSON of the wrong shape - a list, a bare null - parses and
+    # then has no .get. A report may not crash on a corrupt file.
+    if not isinstance(manifest, dict):
+        return manifest_path.name + " is unreadable", True
+
+    recorded = manifest.get(field)
+
+    if not recorded:
+        return manifest_path.name + " records no " + field, True
+
+    if not source.exists():
+        return "source " + source.name + " is missing", True
+
+    if sha256_file(source) != recorded:
+        return "built from superseded " + source.name, True
+
+    return None, False
 
 
 def read_keys(path, column):
@@ -138,6 +230,8 @@ def coverage_report(catalog_paths):
                 "stale": True,
                 "missing": None,
                 "orphaned": None,
+                "source_stale": False,
+                "source_note": None,
                 "failures": {},
                 "failure_examples": [],
             })
@@ -153,6 +247,8 @@ def coverage_report(catalog_paths):
                 "stale": True,
                 "missing": None,
                 "orphaned": None,
+                "source_stale": False,
+                "source_note": None,
                 "failures": {},
                 "failure_examples": [],
             })
@@ -161,18 +257,23 @@ def coverage_report(catalog_paths):
         missing = base - paths
         orphaned = paths - base
 
-        if not missing and not orphaned:
-            status = "OK"
-        else:
-            parts = []
+        # Coverage and the fingerprint answer different questions - who
+        # is present, and whether what they were built from has moved on
+        # - so both go in the same list of reasons.
+        note, source_stale = source_state(name)
 
-            if missing:
-                parts.append(str(len(missing)) + " not covered")
+        parts = []
 
-            if orphaned:
-                parts.append(str(len(orphaned)) + " no longer in catalog")
+        if missing:
+            parts.append(str(len(missing)) + " not covered")
 
-            status = "STALE - " + ", ".join(parts)
+        if orphaned:
+            parts.append(str(len(orphaned)) + " no longer in catalog")
+
+        if note:
+            parts.append(note)
+
+        status = "STALE - " + ", ".join(parts) if parts else "OK"
 
         # A failed image is covered but not usable, so the coverage
         # count cannot carry this and the status column has to.
@@ -187,9 +288,11 @@ def coverage_report(catalog_paths):
             "covers": len(paths),
             "built": age(path),
             "status": status,
-            "stale": bool(missing or orphaned),
+            "stale": bool(missing or orphaned or source_stale),
             "missing": len(missing),
             "orphaned": len(orphaned),
+            "source_stale": source_stale,
+            "source_note": note,
             "failures": counts,
             "failure_examples": names,
         })
