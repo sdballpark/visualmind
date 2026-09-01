@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { PaletteMark } from './api'
-import { colorFor } from './palette'
+import { colorFor, mutedColorFor } from './palette'
 
 /**
  * Every photograph in the collection, as one band.
@@ -18,6 +18,17 @@ export const BAND = 84
 const MIN_MARK = 5
 const MAX_MARK = 72
 const MARK_WIDTH = 3
+
+/*
+ * Undated marks are drawn narrower than dated ones. The segment's width
+ * stays proportional to the count - that part is honest and does not
+ * move - but 153 marks evenly spaced across it left no gap between
+ * them, so the segment rendered as one solid slab and read as the
+ * heaviest thing in the band. A thinner mark at the same spacing opens
+ * a gap and turns the slab into a field.
+ */
+const UNDATED_MARK_WIDTH = 1.6
+
 const SEGMENT_GAP = 40
 
 /** Lightness for a mark whose palette row carried none. */
@@ -26,6 +37,7 @@ const ASSUMED_LIGHTNESS = 0.5
 interface Placed {
   key: string
   x: number
+  width: number
   height: number
   color: string
 }
@@ -90,6 +102,7 @@ export function place(marks: PaletteMark[], width: number) {
   const placed: Placed[] = dated.map((mark, index) => ({
     key: mark.sha256,
     x: ((times[index] - earliest) / span) * datedWidth,
+    width: MARK_WIDTH,
     height: markHeight(mark.lightness),
     color: colorFor(mark.hue),
   }))
@@ -100,8 +113,11 @@ export function place(marks: PaletteMark[], width: number) {
     placed.push({
       key: mark.sha256,
       x: undatedLeft + index * step,
+      width: UNDATED_MARK_WIDTH,
+      // Same hue and lightness, roughly half the chroma. What we
+      // know least about should not be what the eye reaches first.
+      color: mutedColorFor(mark.hue),
       height: markHeight(mark.lightness),
-      color: colorFor(mark.hue),
     })
   })
 
@@ -145,7 +161,7 @@ export function DensityStrip({ marks }: { marks: PaletteMark[] }) {
                 key={mark.key}
                 x={mark.x}
                 y={(BAND - mark.height) / 2}
-                width={MARK_WIDTH}
+                width={mark.width}
                 height={mark.height}
                 fill={mark.color}
                 style={{ animationDelay: `${Math.min(index, 440) * 0.8}ms` }}

@@ -23,6 +23,14 @@
  * darker than its neighbours would read as a height difference that is
  * not there. Hue and chroma carry the family; lightness carries nothing.
  *
+ * Each anchor carries a muted twin at the same hue and the same L*,
+ * with a little over half the chroma. Undated photographs are drawn in
+ * those. They are the part of the archive we know least about, and at
+ * 153 images the segment was reading as the headline of the band rather
+ * than as a footnote to it. Dropping chroma - and only chroma, since
+ * lightness is the height signal - lets it stay present without
+ * claiming the eye first.
+ *
  * This file is data. Retuning the palette should never require touching
  * the strip's layout.
  */
@@ -30,30 +38,33 @@
 export interface Anchor {
   /** Where this anchor sits on the wheel, in degrees. */
   readonly hue: number
-  /** What it renders as. */
+  /** What a dated photograph renders as. */
   readonly color: string
+  /** Same hue and lightness, a third of the chroma. For undated ones. */
+  readonly muted: string
   readonly name: string
 }
 
 /** Images with no dominant hue: grey, black or white throughout. */
 export const NEUTRAL = '#9a9086'
+export const NEUTRAL_MUTED = '#8d8781'
 
 export const ANCHORS: readonly Anchor[] = [
   // Warm family - 285 of 440 images land here.
-  { hue: 6, color: '#c35d52', name: 'terracotta' },
-  { hue: 18, color: '#b66745', name: 'burnt orange' },
-  { hue: 28, color: '#a57142', name: 'amber' },
-  { hue: 40, color: '#937842', name: 'ochre' },
+  { hue: 6, color: '#c35d52', muted: '#9e716c', name: 'terracotta' },
+  { hue: 18, color: '#b66745', muted: '#987464', name: 'burnt orange' },
+  { hue: 28, color: '#a57142', muted: '#917761', name: 'amber' },
+  { hue: 40, color: '#937842', muted: '#887b5f', name: 'ochre' },
 
   // The greens, and the nearest thing the strip has to a third family
   // at 20 images. Kept muted so it reads as an edge of the warm side
   // rather than as a family of its own.
-  { hue: 90, color: '#68854a', name: 'moss' },
+  { hue: 90, color: '#68854a', muted: '#718162', name: 'moss' },
 
   // Cool family - 135 of 440.
-  { hue: 200, color: '#51829b', name: 'teal' },
-  { hue: 212, color: '#517fb3', name: 'blue' },
-  { hue: 224, color: '#627abc', name: 'indigo' },
+  { hue: 200, color: '#51829b', muted: '#67808c', name: 'teal' },
+  { hue: 212, color: '#517fb3', muted: '#697e96', name: 'blue' },
+  { hue: 224, color: '#627abc', muted: '#717c99', name: 'indigo' },
 ]
 
 /** Shortest distance between two angles, in degrees. */
@@ -61,17 +72,7 @@ export function hueDistance(first: number, second: number): number {
   return Math.abs(((first - second + 180) % 360 + 360) % 360 - 180)
 }
 
-/**
- * The colour for a mark.
- *
- * A null hue is an achromatic photograph, which is a real answer rather
- * than a missing one, so it renders neutral instead of disappearing.
- */
-export function colorFor(hue: number | null): string {
-  if (hue === null || Number.isNaN(hue)) {
-    return NEUTRAL
-  }
-
+function anchorFor(hue: number): Anchor {
   let closest = ANCHORS[0]
   let smallest = hueDistance(hue, closest.hue)
 
@@ -84,5 +85,28 @@ export function colorFor(hue: number | null): string {
     }
   }
 
-  return closest.color
+  return closest
+}
+
+/**
+ * The colour for a dated mark.
+ *
+ * A null hue is an achromatic photograph, which is a real answer rather
+ * than a missing one, so it renders neutral instead of disappearing.
+ */
+export function colorFor(hue: number | null): string {
+  if (hue === null || Number.isNaN(hue)) {
+    return NEUTRAL
+  }
+
+  return anchorFor(hue).color
+}
+
+/** The colour for an undated mark: same hue, a third of the chroma. */
+export function mutedColorFor(hue: number | null): string {
+  if (hue === null || Number.isNaN(hue)) {
+    return NEUTRAL_MUTED
+  }
+
+  return anchorFor(hue).muted
 }

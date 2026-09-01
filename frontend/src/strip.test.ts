@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { place } from './DensityStrip'
-import { ANCHORS, NEUTRAL, colorFor, hueDistance } from './palette'
+import {
+  ANCHORS,
+  NEUTRAL,
+  NEUTRAL_MUTED,
+  colorFor,
+  hueDistance,
+  mutedColorFor,
+} from './palette'
 import type { PaletteMark } from './api'
 
 const WIDTH = 1000
@@ -16,6 +23,13 @@ function mark(over: Partial<PaletteMark>): PaletteMark {
 }
 
 describe('palette anchors', () => {
+  it('gives every anchor a muted twin', () => {
+    for (const anchor of ANCHORS) {
+      expect(anchor.muted).toMatch(/^#[0-9a-f]{6}$/)
+      expect(anchor.muted).not.toBe(anchor.color)
+    }
+  })
+
   it('sends a null hue to the neutral, not to an anchor', () => {
     expect(colorFor(null)).toBe(NEUTRAL)
   })
@@ -146,5 +160,33 @@ describe('placement', () => {
 
   it('survives a zero width before the first measurement', () => {
     expect(() => place([mark({})], 0)).not.toThrow()
+  })
+
+  it('draws undated marks muted and dated ones at full chroma', () => {
+    // 153 undated images at full chroma read as the headline of the
+    // band rather than as a footnote to it.
+    const marks = [mark({ hue: 25 }), mark({ hue: 25, captured: null })]
+    const [dated, undated] = place(marks, WIDTH).placed
+
+    expect(dated.color).toBe(colorFor(25))
+    expect(undated.color).toBe(mutedColorFor(25))
+    expect(undated.color).not.toBe(dated.color)
+  })
+
+  it('draws undated marks narrower, so the segment is a field', () => {
+    // The width share stays proportional to the count; only the mark
+    // narrows, which opens a gap where there was none.
+    const marks = [mark({}), mark({ captured: null })]
+    const [dated, undated] = place(marks, WIDTH).placed
+
+    expect(undated.width).toBeLessThan(dated.width)
+  })
+
+  it('mutes an achromatic undated mark too', () => {
+    const marks = [mark({ hue: null, captured: null })]
+    const [only] = place(marks, WIDTH).placed
+
+    expect(only.color).toBe(NEUTRAL_MUTED)
+    expect(only.color).not.toBe(NEUTRAL)
   })
 })
