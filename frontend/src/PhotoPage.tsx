@@ -35,6 +35,7 @@ function Related({ detail }: { detail: ImageDetail }) {
         {people.map((person) => (
           <a
             key={person.name}
+            className="person"
             href={`/?person=${encodeURIComponent(person.name)}`}
             onClick={(clicked) => {
               clicked.preventDefault()

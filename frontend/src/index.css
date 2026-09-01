@@ -142,7 +142,15 @@ header p a {
  * The item page. Serif for what is read, sans for what is looked up -
  * the caption is prose and the metadata is not.
  */
+/*
+ * A deliberate measure rather than whatever the viewport happens to be.
+ * Without this the article inherited the grid's width, so at 2560px the
+ * caption sat in a narrow column against a wide empty right side - the
+ * column was an accident of the window, not a decision.
+ */
 .photo-page {
+  max-width: 1080px;
+  margin: 0 auto;
   padding-bottom: 140px;
 }
 
@@ -193,16 +201,39 @@ header p a {
   letter-spacing: 0.04em;
 }
 
+/*
+ * A flex row rather than inline anchors.
+ *
+ * JSX renders a mapped list with no whitespace between the elements, so
+ * once each name is nowrap there is no break opportunity anywhere in
+ * the row and it overflows the column. It used to wrap only because it
+ * could break inside a name, which is the thing being fixed. Flex
+ * supplies the break points, and the gap replaces a margin that was
+ * only ever spacing them apart by eye.
+ */
 .related dd {
   margin: 0;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 18px;
+  align-items: baseline;
 }
 
 .related dd a {
   color: var(--ink);
   text-decoration: none;
   border-bottom: 1px solid var(--faint);
-  margin-right: 18px;
   line-height: 1.9;
+}
+
+/*
+ * A person's name is one unit. The list wraps between names; a name
+ * never wraps inside itself, which turned "Terry Bogan Brockmann" into
+ * two people at a glance.
+ */
+.related .person {
+  white-space: nowrap;
 }
 
 .related .aside {
